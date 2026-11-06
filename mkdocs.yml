@@ -1,0 +1,35 @@
+site_name: Rusk β 05
+site_description: 競技プログラミング向け言語 Rusk β 05 のドキュメント
+site_url: https://shogo314.github.io/rusk_b_05/
+repo_url: https://github.com/shogo314/rusk_b_05
+repo_name: shogo314/rusk_b_05
+edit_uri: edit/main/docs/
+strict: true
+theme:
+  name: material
+  language: ja
+nav:
+  - ホーム: index.md
+  - はじめに: getting-started/index.md
+  - 言語リファレンス:
+      - 基本構文と共有: reference/index.md
+      - 文法一覧（EBNF）: reference/grammar.md
+      - 型・共有・評価の規則: reference/semantics.md
+      - β02の型とライブラリ分割: reference/beta02.md
+      - β04の関数と捕捉: reference/beta04.md
+      - エラーと制限: reference/errors.md
+  - ライブラリ:
+      - 標準ライブラリ: library/index.md
+      - Ruskで記述したデータ構造: library/data-structures.md
+      - 関数を使う操作とデータ構造: library/beta04.md
+  - 開発ガイド:
+      - 開発の進め方: development/index.md
+      - テストの実行: development/verification.md
+      - β02の性能確認: development/beta02-performance.md
+      - β03の高速化と検証: development/beta03.md
+      - β04の実装と検証: development/beta04.md
+      - ドキュメントの編集と公開: development/documentation.md
+markdown_extensions:
+  - admonition
+  - fenced_code
+  - tables

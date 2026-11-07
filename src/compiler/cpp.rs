@@ -21,7 +21,9 @@ impl Compiler {
             prelude += code;
             prelude += "\n";
         }
+        prelude += &self.enum_forwards();
         prelude += &self.container_cpp();
+        prelude += &self.enum_cpp();
         prelude += &self.lazy_cpp();
         prelude += &self.record_cpp();
         prelude += &self.key_hash_cpp();
@@ -33,7 +35,10 @@ impl Compiler {
             .filter(|&&id| self.functions[id].checked.is_none())
             .map(|&id| self.functions[id].code.clone())
             .collect();
-        let epilogue = self.record_copy_cpp() + &self.container_copy_cpp() + &self.lazy_copy_cpp();
+        let epilogue = self.enum_copy_cpp()
+            + &self.record_copy_cpp()
+            + &self.container_copy_cpp()
+            + &self.lazy_copy_cpp();
         crate::backend::Context {
             types: self.types.clone(),
             functions,

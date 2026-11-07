@@ -331,10 +331,11 @@ impl Program {
                         match expression {
                             hir::Rvalue::Share(v)
                             | hir::Rvalue::BoolCopy(v)
-                            | hir::Rvalue::OptionPresent(v)
-                            | hir::Rvalue::OptionValue(v) => value(v)?,
+                            | hir::Rvalue::VariantTest { owner: v, .. }
+                            | hir::Rvalue::VariantField { owner: v, .. } => value(v)?,
                             hir::Rvalue::Field { owner, .. } => value(owner)?,
-                            hir::Rvalue::Aggregate(fields) => {
+                            hir::Rvalue::Aggregate(fields)
+                            | hir::Rvalue::Variant { fields, .. } => {
                                 for f in fields {
                                     value(f)?;
                                 }

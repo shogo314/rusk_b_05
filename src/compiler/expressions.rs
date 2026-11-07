@@ -120,11 +120,26 @@ impl Compiler {
         let element = self
             .option_element(&value.ty)
             .ok_or_else(|| span.error("left operand of ?? must be Option<T>"))?;
-        let condition = self.emit("Bool", Rvalue::OptionPresent(value.clone()));
+        let condition = self.emit(
+            "Bool",
+            Rvalue::VariantTest {
+                owner: value.clone(),
+                index: 0,
+            },
+        );
         self.conditional(
             condition,
             Some(&element),
-            |c, _| Ok(c.emit(&element, Rvalue::OptionValue(value))),
+            |c, _| {
+                Ok(c.emit(
+                    &element,
+                    Rvalue::VariantField {
+                        owner: value,
+                        variant: 0,
+                        index: 0,
+                    },
+                ))
+            },
             |c, ty| c.expr(right, ty),
             span,
         )

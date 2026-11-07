@@ -3,7 +3,6 @@ use super::*;
 
 #[derive(Clone)]
 pub(super) enum Shape {
-    Option,
     Dict,
     Set,
     Iterator { owner: String, element: String },
@@ -16,12 +15,6 @@ pub(super) struct Container {
 }
 
 impl Compiler {
-    pub(super) fn option_element(&self, ty: &str) -> Option<String> {
-        self.containers
-            .get(ty)
-            .filter(|c| matches!(c.shape, Shape::Option))
-            .map(|c| c.arguments[0].clone())
-    }
     pub(super) fn container_argument_hint(
         &self,
         name: &str,
@@ -78,14 +71,13 @@ impl Compiler {
             Shape::Dict => Some(format!("Tuple<{},{}>", c.arguments[0], c.arguments[1])),
             Shape::Set => Some(c.arguments[0].clone()),
             Shape::Iterator { element, .. } => Some(element.clone()),
-            _ => None,
         }
     }
     pub(super) fn specialize_container(&mut self, name: &Name) -> Result<bool, String> {
         let Some((base, args)) = type_parts(&name.text) else {
             return Ok(false);
         };
-        if !matches!(base, "Option" | "Dict" | "Set") {
+        if !matches!(base, "Dict" | "Set") {
             return Ok(false);
         }
         let count = if base == "Dict" { 2 } else { 1 };
@@ -101,7 +93,7 @@ impl Compiler {
                 span: name.span.clone(),
             })?;
         }
-        if base != "Option" && !self.key_type(&arguments[0]) {
+        if !self.key_type(&arguments[0]) {
             return Err(name
                 .span
                 .error("hash keys require basic types or tuples of basic types"));
@@ -111,7 +103,6 @@ impl Compiler {
         }
         let native = format!("RuskContainer{}", self.containers.len());
         let shape = match base {
-            "Option" => Shape::Option,
             "Dict" => Shape::Dict,
             _ => Shape::Set,
         };
@@ -134,26 +125,8 @@ impl Compiler {
             },
             &name.span,
         )?;
-        let assign = if matches!(shape, Shape::Option) {
-            "x->value=std::move(snapshot->value);"
-        } else {
-            "x->entries=std::move(snapshot->entries);++x->version;"
-        };
+        let assign = "x->entries=std::move(snapshot->entries);++x->version;";
         self.native_function("__assign__",vec![ty.clone(),ty.clone()],"Unit",|cpp|format!("void {cpp}(Obj<{native}> x,Obj<{native}> y,Loc loc){{auto snapshot=deep_copy(y,loc);{assign}}}"),&name.span)?;
-        if matches!(shape, Shape::Option) {
-            let dummy = Value {
-                ty: ty.clone(),
-                id: ValueId::Probe,
-            };
-            for operation in ["is_some", "is_none", "__bool__", "__not__", "value"] {
-                self.collection_operation(
-                    operation,
-                    std::slice::from_ref(&dummy),
-                    None,
-                    &name.span,
-                )?;
-            }
-        }
         if matches!(shape, Shape::Dict | Shape::Set) {
             self.register_collection_iterator(ty, &name.span)?;
         }
@@ -215,7 +188,7 @@ impl Compiler {
         )?;
         Ok(())
     }
-    fn cached_native(
+    pub(super) fn cached_native(
         &mut self,
         name: &str,
         params: Vec<String>,
@@ -307,7 +280,7 @@ impl Compiler {
         let code = if base == "Some" {
             let value = &self.types[&args[0].ty];
             format!(
-                "Obj<{native}> $fn(Obj<{value}> value,Loc){{return make_obj<{native}>({native}{{{{value}}}});}}"
+                "Obj<{native}> $fn(Obj<{value}> value,Loc){{return rusk_enum_make<{native},0>(value);}}"
             )
         } else if base == "try_read" {
             let element = self.option_element(&result).unwrap();
@@ -318,8 +291,10 @@ impl Compiler {
             self.used.insert(read);
             let read = &self.functions[read].cpp;
             format!(
-                "Obj<{native}> $fn(Loc loc){{while(ascii_space(rusk_peek()))rusk_get();if(rusk_peek()==std::char_traits<char>::eof())return make_obj<{native}>({native}{{}});auto value={read}(loc);return make_obj<{native}>({native}{{{{value}}}});}}"
+                "Obj<{native}> $fn(Loc loc){{while(ascii_space(rusk_peek()))rusk_get();if(rusk_peek()==std::char_traits<char>::eof())return rusk_enum_make<{native},1>();auto value={read}(loc);return rusk_enum_make<{native},0>(value);}}"
             )
+        } else if self.option_element(&result).is_some() {
+            format!("Obj<{native}> $fn(Loc){{return rusk_enum_make<{native},1>();}}")
         } else {
             format!("Obj<{native}> $fn(Loc){{return make_obj<{native}>({native}{{}});}}")
         };
@@ -363,40 +338,19 @@ impl Compiler {
             let source = self.types[&args[0].ty].clone();
             let value = self.types[&element].clone();
             let native = self.types[result].clone();
-            return self.cached_native(name,vec![args[0].ty.clone(),element],result,|cpp|format!("Obj<{native}> {cpp}(Obj<{source}> source,Obj<{value}> value,Loc loc){{auto version=source->version;for(std::size_t i=0,n=source->size();i<n;++i){{auto current=(*source)[i];bool match=*{eq}(current,value,loc);if(version!=source->version)fail(loc,\"container changed during callback\");if(match)return make_obj<{native}>({native}{{{{make_obj<std::int64_t>(checked_int(i,loc))}}}});}}return make_obj<{native}>({native}{{}});}}"),span).map(Some);
+            return self.cached_native(name,vec![args[0].ty.clone(),element],result,|cpp|format!("Obj<{native}> {cpp}(Obj<{source}> source,Obj<{value}> value,Loc loc){{auto version=source->version;for(std::size_t i=0,n=source->size();i<n;++i){{auto current=(*source)[i];bool match=*{eq}(current,value,loc);if(version!=source->version)fail(loc,\"container changed during callback\");if(match)return rusk_enum_make<{native},0>(make_obj<std::int64_t>(checked_int(i,loc)));}}return rusk_enum_make<{native},1>();}}"),span).map(Some);
         }
         let Some(first) = args.first() else {
             return Ok(None);
         };
+        if let Some(index) = self.option_operation(name, args, span)? {
+            return Ok(Some(index));
+        }
         let Some(c) = self.containers.get(&first.ty).cloned() else {
             return Ok(None);
         };
         let types = args.iter().map(|v| v.ty.clone()).collect::<Vec<_>>();
         let native = c.native.clone();
-        if matches!(c.shape, Shape::Option) {
-            let result = match name {
-                "is_some" | "is_none" | "__bool__" | "__not__" => "Bool".into(),
-                "value" => c.arguments[0].clone(),
-                _ => return Ok(None),
-            };
-            if args.len() != 1 {
-                return Err(span.error("Option operation takes one receiver"));
-            }
-            let result_native = self.types[&result].clone();
-            let body = if name == "value" {
-                "if(!x->value)fail(loc,\"absent Option value\");return x->value;".to_string()
-            } else {
-                format!(
-                    "return make_obj<bool>({}bool(x->value));",
-                    if matches!(name, "is_none" | "__not__") {
-                        "!"
-                    } else {
-                        ""
-                    }
-                )
-            };
-            return self.cached_native(name,types,&result,|cpp|format!("Obj<{result_native}> {cpp}(Obj<{native}> x,[[maybe_unused]] Loc loc){{{body}}}"),span).map(Some);
-        }
         if !matches!(c.shape, Shape::Dict | Shape::Set) {
             return Ok(None);
         }
@@ -441,7 +395,7 @@ impl Compiler {
                         let result=format!("Option<{value}>");self.check_type(&Name{text:result.clone(),span:span.clone()})?;
                         let found=if is_dict{"it->second".into()}else{let copy=self.copy_function(&key,span)?;format!("{copy}(*it,loc)")};
                         let option=self.types[&result].clone();
-                        (result,format!("auto it=x->entries.find(key);if(it==x->entries.end())return make_obj<{option}>({option}{{}});auto value={found};return make_obj<{option}>({option}{{{{value}}}});"))
+                        (result,format!("auto it=x->entries.find(key);if(it==x->entries.end())return rusk_enum_make<{option},1>();auto value={found};return rusk_enum_make<{option},0>(value);"))
                     }
                     "insert" if !is_dict && args.len()==2=>{let copy=self.copy_function(&key,span)?;("Bool".into(),format!("if(x->entries.find(key)!=x->entries.end())return make_obj<bool>(false);auto copied={copy}(key,loc);x->entries.insert(copied);++x->version;return make_obj<bool>(true);"))}
                     "set"|"__setitem__" if is_dict && args.len()==3=>{
@@ -624,7 +578,6 @@ impl Compiler {
                 .collect::<Vec<_>>()
                 .join(",");
             let base = match c.shape {
-                Shape::Option => "RuskOption",
                 Shape::Dict => "RuskDict",
                 Shape::Set => "RuskSet",
                 Shape::Iterator { .. } => continue,
@@ -690,10 +643,6 @@ impl Compiler {
                 .map(|&i| self.functions[i].cpp.clone())
                 .collect::<Vec<_>>();
             let body = match &c.shape {
-                Shape::Option => format!(
-                    "return make_obj<{native}>({native}{{{{value->value?{}(value->value,loc):Obj<{}>{{}}}}}});",
-                    copies[0], self.types[&c.arguments[0]]
-                ),
                 Shape::Dict => format!(
                     "auto result=make_obj<{native}>({native}{{}});for(const auto& entry:value->entries){{auto key={}(entry.first,loc);auto item={}(entry.second,loc);result->entries.emplace(key,item);}}return result;",
                     copies[0], copies[1]

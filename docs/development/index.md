@@ -99,7 +99,7 @@ python3 tools/benchmark.py --repeats 3 --output /tmp/rusk-benchmark.json
 
 サニタイザー検証は GCC の AddressSanitizer / UBSan で文字・配列要素の寿命とBFSを確認します。LeakSanitizerが動かないptrace環境では `--no-leaks` を指定できます。ベンチマークは同じ入力についてRuskと手書きC++、利用可能ならPyPyの出力を照合し、コンパイルを除いた実行時間の中央値と環境情報をJSONで出します。速度の合否判定には使いません。`--baseline-compiler PATH` で以前の処理系とも比較できます。[β02の性能確認](beta02-performance.md) にβ01との測定結果を記録しています。
 
-未実装の主な機能は、浮動小数点、readonly、汎用enum/match、整列した辞書・集合、スライス、内側の名前付き関数、高度なジェネリクス、名前空間を持つモジュール、さらなる最適化です。
+未実装の主な機能は、浮動小数点、readonly、再帰型、整列した辞書・集合、スライス、内側の名前付き関数、高度なジェネリクス、名前空間を持つモジュール、さらなる最適化です。
 
 β02の具体化・型の制限は [β02の型とライブラリ分割](../reference/beta02.md)、開発目標はリポジトリの `design/beta02.md` に記録しています。
 

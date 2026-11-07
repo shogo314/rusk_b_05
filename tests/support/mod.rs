@@ -67,13 +67,14 @@ impl Case {
             .stderr(Stdio::piped())
             .spawn()
             .unwrap();
-        child
-            .stdin
-            .take()
-            .unwrap()
-            .write_all(input.as_bytes())
-            .unwrap();
-        child.wait_with_output().unwrap()
+        let written = child.stdin.take().unwrap().write_all(input.as_bytes());
+        // Programs may deliberately fail before consuming all supplied input.
+        // Preserve their exit status and diagnostics even if stdin closes early.
+        let output = child.wait_with_output().unwrap();
+        if let Err(error) = written {
+            assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe, "{error}");
+        }
+        output
     }
 }
 impl Drop for Case {

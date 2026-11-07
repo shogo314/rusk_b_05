@@ -18,6 +18,16 @@ fn references(expr: &Expr, bound: &BTreeSet<String>, output: &mut BTreeMap<Strin
                 references(tail, &local, output);
             }
         }
+        ExprKind::Match(value, arms) => {
+            references(value, bound, output);
+            for arm in arms {
+                let mut local = bound.clone();
+                for b in &arm.bindings {
+                    bind_names(b, &mut local);
+                }
+                references(&arm.body, &local, output);
+            }
+        }
         ExprKind::If(a, b, c) => {
             references(a, bound, output);
             references(b, bound, output);
@@ -35,7 +45,7 @@ fn references(expr: &Expr, bound: &BTreeSet<String>, output: &mut BTreeMap<Strin
             references(b, bound, output);
         }
         ExprKind::Var(n) => {
-            if !bound.contains(&n.text) {
+            if !bound.contains(&n.text) && !n.text.contains("::") && n.text != "None" {
                 output.insert(n.text.clone(), true);
             }
         }
@@ -114,7 +124,7 @@ fn statement_references(
                 bound.insert(name.text.clone());
             }
         }
-        Stmt::Expr(e) | Stmt::Return(_, Some(e)) => references(e, bound, output),
+        Stmt::Expr(e) | Stmt::Match(e) | Stmt::Return(_, Some(e)) => references(e, bound, output),
         Stmt::Output(items) => {
             for item in items {
                 references(item, bound, output);

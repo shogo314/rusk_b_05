@@ -19,13 +19,21 @@ impl Compiler {
                         params: c.parameters.clone(),
                         result: c.result.clone(),
                     }
+                } else if let Some(e) = self.enums.get(name) {
+                    Type::Enum(
+                        e.variants
+                            .iter()
+                            .map(|(n, f)| {
+                                (n.text.clone(), f.iter().map(|t| t.text.clone()).collect())
+                            })
+                            .collect(),
+                    )
                 } else if self.records.contains_key(name) {
                     Type::Record(fields())
                 } else if let Some(element) = vector_element(name) {
                     Type::Vector(element.into())
                 } else if let Some(c) = self.containers.get(name) {
                     match &c.shape {
-                        containers::Shape::Option => Type::Option(c.arguments[0].clone()),
                         containers::Shape::Dict => Type::Dict {
                             key: c.arguments[0].clone(),
                             value: c.arguments[1].clone(),

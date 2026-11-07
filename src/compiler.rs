@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 mod callables;
 mod containers;
 mod cpp;
+mod enums;
 mod expressions;
 mod flow;
 mod generics;
@@ -39,6 +40,10 @@ struct LoopContext {
 #[derive(Default)]
 pub struct Compiler {
     types: BTreeMap<String, String>,
+    enum_definitions: BTreeMap<String, enums::Definition>,
+    enums: BTreeMap<String, enums::Enum>,
+    enum_copies: BTreeMap<String, Vec<Vec<usize>>>,
+    preparing_enums: Vec<String>,
     containers: BTreeMap<String, containers::Container>,
     container_copies: BTreeMap<String, Vec<usize>>,
     container_functions: BTreeMap<String, usize>,
@@ -155,6 +160,22 @@ impl Compiler {
                     }
                 }
             }
+        }
+        for source in sources {
+            for s in source {
+                if let Stmt::Enum(name, parameters, variants) = s {
+                    self.register_enum(name, parameters, variants)?;
+                }
+            }
+        }
+        let enum_names = self
+            .enum_definitions
+            .values()
+            .filter(|d| d.parameters.is_empty())
+            .map(|d| d.name.clone())
+            .collect::<Vec<_>>();
+        for name in enum_names {
+            self.check_type(&name)?;
         }
         self.prepare_records()?;
         for source in sources {
@@ -283,9 +304,11 @@ impl Compiler {
             }
             self.prepare_record_copies()?;
             self.prepare_container_copies()?;
+            self.prepare_enum_copies()?;
             if index == self.functions.len()
                 && self.record_copies.len() == self.records.len()
                 && self.container_copies.len() == self.containers.len()
+                && self.enum_copies.len() == self.enums.len()
             {
                 break;
             }
@@ -373,7 +396,10 @@ impl Compiler {
         if self.diverged {
             return Err(crate::hir::DIVERGED.into());
         }
-        if self.types.contains_key(&n.text) || self.specialize_container(n)? {
+        if self.types.contains_key(&n.text)
+            || self.specialize_enum(n)?
+            || self.specialize_container(n)?
+        {
             Ok(())
         } else if n.text.starts_with("Tuple<") {
             self.specialize_tuple(n)
@@ -387,6 +413,7 @@ impl Compiler {
                 && vector_element(&inner).is_none()
                 && !self.records.contains_key(&inner)
                 && !self.containers.contains_key(&inner)
+                && !self.enums.contains_key(&inner)
             {
                 return Err(n
                     .span
@@ -423,7 +450,8 @@ impl Compiler {
                 if name.text == "__read__"
                     && (vector_element(inner).is_some()
                         || self.records.contains_key(inner)
-                        || self.containers.contains_key(inner))
+                        || self.containers.contains_key(inner)
+                        || self.enums.contains_key(inner))
                 {
                     continue;
                 }
@@ -553,6 +581,9 @@ impl Compiler {
     ) -> Result<Value, String> {
         if self.diverged {
             return Ok(Value::never());
+        }
+        if let Some(value) = self.enum_constructor(name, &args, expected, s)? {
+            return Ok(value);
         }
         let constructor = self.container_constructor(name, &args, expected, s)?;
         let resolved = if constructor.is_some() {
@@ -703,6 +734,7 @@ impl Compiler {
             }
             Stmt::Type(n, _)
             | Stmt::Struct(n, ..)
+            | Stmt::Enum(n, ..)
             | Stmt::Function(n, ..)
             | Stmt::UserFunction(n, ..)
             | Stmt::Symbol(n, _) => {
@@ -1021,7 +1053,7 @@ impl Compiler {
                 self.scopes.pop();
                 self.body.push(Instruction::Scope(body));
             }
-            Stmt::Expr(e) => {
+            Stmt::Expr(e) | Stmt::Match(e) => {
                 self.expr(e, None)?;
             }
         }
@@ -1066,6 +1098,7 @@ impl Compiler {
             ExprKind::Block(statements, tail) => {
                 self.block_expression(statements, tail.as_deref(), expected, &e.span)
             }
+            ExprKind::Match(value, arms) => self.match_expression(value, arms, expected, &e.span),
             ExprKind::If(a, b, c) => self.if_expression(a, b, c, expected, &e.span),
             ExprKind::Coalesce(a, b) => self.coalesce(a, b, expected, &e.span),
             ExprKind::Unwrap(value) => {
@@ -1182,8 +1215,10 @@ impl Compiler {
                 Ok(result)
             }
             ExprKind::Var(n) => {
-                if n.text == "None" && self.local_variable("None").is_none() {
-                    return self.call("None", vec![], expected, &n.span);
+                if (n.text == "None" || n.text.contains("::"))
+                    && self.local_variable(&n.text).is_none()
+                {
+                    return self.call(&n.text, vec![], expected, &n.span);
                 }
                 let Some(v) = self.local_variable(&n.text) else {
                     return self.function_value(n);
@@ -1222,7 +1257,10 @@ impl Compiler {
                     // Use a context only when every remaining overload agrees.
                     let hints = self.argument_hints(&n.text, args.len(), &values);
                     let builtin_hint =
-                        self.container_argument_hint(&n.text, args.len(), &values, expected);
+                        self.enum_argument_hint(&n.text, &values, expected)
+                            .or_else(|| {
+                                self.container_argument_hint(&n.text, args.len(), &values, expected)
+                            });
                     let hint = if hints.len() == 1 {
                         hints.first().map(String::as_str)
                     } else {

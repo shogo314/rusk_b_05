@@ -18,6 +18,8 @@ let n := 10 + (if false { 1 } else { 2 });
 
 未初期化変数は、両分岐で確実に初期化した場合だけ後から読めます。
 
+Optionは[汎用enum](enums.md)で定義され、`Option::Some`・`Option::None` とmatchでも扱えます。以下の短い構築記法と専用APIも使えます。
+
 ## Optionの構築と取得
 
 ```text

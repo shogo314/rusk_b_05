@@ -12,6 +12,8 @@ Ruskソース
   → g++などによる実行ファイル化
 ```
 
+追加した汎用enumとOption移行後の検証は[enumとOption移行](enums.md)に記録しています。以下の測定・件数は各段階時点の記録です。
+
 ## 各段階を確認する
 
 ```bash
@@ -45,7 +47,7 @@ g++ -std=c++20 -O2 /tmp/control.cpp -o /tmp/control
 
 - 変数の参照先は元の名前ではなく、宣言ごとのID。仮引数IDは関数内、ローカルIDは処理系のカウンターから採番する。
 - 関数呼び出しは一覧中のIDで、オーバーロードとジェネリック具体化の選択を完了済み。
-- 型の表にはRuskの型名と構造体・タプルのフィールド、配列・Option・辞書・集合の要素型、クロージャの捕捉と呼び出し先などを保持する。
+- 型の表にはRuskの型名と構造体・タプルのフィールド、enumのvariantとpayload、配列・辞書・集合の要素型、クロージャの捕捉と呼び出し先などを保持する。
 - `Object` は共有取得・フィールド取得・構築などを表し、`Rebind` は保持場所の結び直しを表す。
 - コピー・オブジェクトの更新は、解決済みのcopy・更新関数の呼び出しとして区別する。
 - `Scope`・`If`・`Loop`・`Break`・`Continue`・`Return` で制御構造を保持する。break/continueは対象ループのIDを持つ。
@@ -128,3 +130,5 @@ python3 tools/benchmark.py --compiler target/release/rusk \
 `--baseline-all-cases` は比較元が選択した全項目を実行できる場合に指定します。古いβ02/β03を比較元にする場合は省略します。[測定JSON](pipeline-benchmark.json)に各回の値、最適化無効版・C++・PyPyの値、環境・入力・ソースと両処理系のハッシュを保存しています。比較元の処理系のハッシュは[β05の機能追加時の記録](beta05-benchmark.json)と一致します。
 
 ブロック式とラベル追加後の通常版231件・最適化無効版117件・サニタイザー13例の検証は[ブロック式とラベルの仕様](../reference/blocks-labels.md)と設計ノートに追記しています。上の222/108件と測定JSONはIR移行時点の記録です。
+
+汎用enumはHIRの`Variant`・`VariantTest`・`VariantField`で構築・判定・取り出しを表す。matchは網羅性・型・束縛スコープを検査したうえで構造化分岐へ下げ、LIRでジャンプになる。Optionも同じ型記述と命令を使い、専用のOption型や取得命令は持たない。C++バックエンドではpayload構造体の`std::variant`を共有オブジェクト内に格納する。

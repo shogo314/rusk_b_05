@@ -75,7 +75,7 @@ GitHub Actionsの `Test` も `python3 tools/test.py` を使い、取得済み公
 
 `tests/optimization.rs` は共有・評価順序・終了コード・エラー位置を通常版と `--no-opt` で比較し、アロケーターを計測して一時値の確保削減も確認します。`tests/buffered_io.rs` は64 KiB境界をまたぐ入力・出力、CRLF・EOF・NUL、トークンと行入力の混在、外部のiostreamとの接続、不正入力を確認します。
 
-共通入口では既存のE2E・構造体・タプル・ジェネリクス・include・データ構造・関数の受け渡しの117テストを最適化無効でも実行します。性能の測定手順と結果は [β03の高速化と検証](beta03.md) に記録しています。
+共通入口では既存のE2E・構造体・タプル・ジェネリクス・include・データ構造・関数の受け渡しの130テストを最適化無効でも実行します。性能の測定手順と結果は [β03の高速化と検証](beta03.md) に記録しています。
 
 β04の `tests/callables.rs`・`tests/higher_order.rs`・`tests/beta04_structures.rs` では捕捉の共有とコピー、寿命、遅延評価、短絡、安定性、キーの評価回数、コールバック中の構造変更を確認します。境界探索は180回の更新と素朴な走査、優先度キューは整列した多重集合を独立した基準として照合します。
 
@@ -84,3 +84,5 @@ GitHub Actionsの `Test` も `python3 tools/test.py` を使い、取得済み公
 `tests/pipeline.rs` ではCST/AST/HIR/LIR/C++の出力、最適化によらないIRの一致、解決済みの型・参照先、ジャンプをまたぐ共有の解放と返却値の寿命を確認します。内部テストでは不正なIRの検出と、外側のループへのジャンプの解放、合流時に残る共有の解析を検証します。[パイプライン](pipeline.md)を参照してください。
 
 `tests/blocks_labels.rs`はブロック式の結果と共有、ラベルの名前解決と範囲、脱出する分岐、短絡、クロージャの捕捉・戻り型、文字への共有の寿命を検証します。`examples/beta05/blocks_and_labels.rusk`はサニタイザーにも含めます。
+
+`tests/enums.rs`は型引数付きenum、網羅的match、payloadの共有・コピーと順序、variant切替、外側への制御移動、Optionの互換性を検証します。最適化無効版にも含め、サニタイザーはenumの2例を加えた計15例です。[enumとOption移行](enums.md)を参照してください。

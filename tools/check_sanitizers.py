@@ -9,6 +9,17 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = [
+    ((ROOT/'examples/beta05/enums.rusk').read_text(),b'',b'5\n5\n8\n'),
+    ('''enum Cell<T>{Full(T),Empty}
+let text:="abc";let cell:=Cell::Full(text[0]);let alias:=cell;
+let held:=match cell{Full(c)=>c,Empty=>'?',};
+cell=Cell::Empty;held='Z';wt text;
+held:='Q';text.push_back('!');wt held,text;
+let rows:Vec<Cell<Vec<Int>>>:=[];
+for i in 0..200{rows.push_back(Cell::Full([i]));}
+let detached=rows;let saved:=match rows[0]{Full(r)=>r,Empty=>[],};
+rows=[];saved[0]=7;wt saved,match detached[0]{Full(r)=>r,Empty=>[],};
+''',b'',b'Zbc\nQ Zbc!\n7 0\n'),
     ((ROOT/'examples/beta05/blocks_and_labels.rusk').read_text(),b'',b'a b\nZbc!\n1 2\n'),
     ((ROOT/'examples/beta05/control_flow.rusk').read_text(),b'',b'b c\nab!\nab!? 2\n13\n'),
     ('''let o:=Some([1]);let alias:=o;let held:=o?!;

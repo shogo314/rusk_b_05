@@ -50,6 +50,10 @@ fn reference(t: &g::Reference<'_>) -> Name {
                 .join(",")
         );
     }
+    for part in &t.reference_list {
+        n.text += "::";
+        n.text += &name(&part.identifier).text;
+    }
     n
 }
 fn type_arguments(t: &g::TypeArguments<'_>) -> Vec<Name> {
@@ -128,6 +132,12 @@ pub struct Expr {
     pub span: Span,
 }
 #[derive(Clone, Debug)]
+pub struct MatchArm {
+    pub name: Name,
+    pub bindings: Vec<Binding>,
+    pub body: Expr,
+}
+#[derive(Clone, Debug)]
 pub enum ExprKind {
     Literal(String, String),
     Block(Vec<Stmt>, Option<Box<Expr>>),
@@ -137,6 +147,7 @@ pub enum ExprKind {
     Range(Box<Expr>, Box<Expr>),
     Logical(String, Box<Expr>, Box<Expr>),
     If(Box<Expr>, Box<Expr>, Box<Expr>),
+    Match(Box<Expr>, Vec<MatchArm>),
     Coalesce(Box<Expr>, Box<Expr>),
     Unwrap(Box<Expr>),
     CompareChain(Box<Expr>, Vec<(String, Expr, Span)>),
@@ -159,6 +170,8 @@ pub enum Initializer {
 #[derive(Clone, Debug)]
 pub enum Stmt {
     Include(String, Span),
+    Match(Expr),
+    Enum(Name, Vec<Name>, Vec<(Name, Vec<Name>)>),
     Struct(Name, Vec<Name>, Vec<(Name, Name)>),
     Type(Name, BTreeMap<String, String>),
     Function(
@@ -215,6 +228,54 @@ fn simple_stmt(s: &g::SimpleStatement<'_>) -> Result<Stmt, String> {
                 .map_err(|e| Span::token(&x.include.string_literal.string_literal).error(e))?,
             Span::token(&x.include.string_literal.string_literal),
         ),
+        g::SimpleStatement::EnumDef(x) => {
+            let d = &x.enum_def;
+            Stmt::Enum(
+                name(&d.identifier),
+                d.enum_def_opt
+                    .as_ref()
+                    .map(|p| type_parameters(&p.type_parameters))
+                    .unwrap_or_default(),
+                d.enum_def_opt0
+                    .iter()
+                    .flat_map(|v| {
+                        std::iter::once(v.enum_variants.enum_variant.as_ref()).chain(
+                            v.enum_variants
+                                .enum_variants_list
+                                .iter()
+                                .map(|v| v.enum_variant.as_ref()),
+                        )
+                    })
+                    .map(|v| {
+                        (
+                            name(&v.identifier),
+                            v.enum_variant_opt
+                                .as_ref()
+                                .map(|f| {
+                                    std::iter::once(f.variant_types.type_name.as_ref())
+                                        .chain(
+                                            f.variant_types
+                                                .variant_types_list
+                                                .iter()
+                                                .map(|t| t.type_name.as_ref()),
+                                        )
+                                        .map(type_name)
+                                        .collect()
+                                })
+                                .unwrap_or_default(),
+                        )
+                    })
+                    .collect(),
+            )
+        }
+        g::SimpleStatement::MatchStatement(x) => {
+            let value = match_expr(&x.match_statement.match_expr)?;
+            if x.match_statement.match_statement_opt.is_some() {
+                Stmt::Expr(value)
+            } else {
+                Stmt::Match(value)
+            }
+        }
         g::SimpleStatement::StructDef(x) => Stmt::Struct(
             name(&x.struct_def.identifier),
             x.struct_def
@@ -392,6 +453,8 @@ fn loop_label(label: &g::LoopLabel<'_>) -> Result<Name, String> {
         name.text.as_str(),
         "include"
             | "struct"
+            | "enum"
+            | "match"
             | "fn"
             | "return"
             | "extern"
@@ -493,6 +556,12 @@ fn block_value(statement: Stmt, span: Span) -> Expr {
                     ),
                 }));
             }
+            Some(Stmt::Match(_)) => {
+                let Stmt::Match(value) = statements.pop().unwrap() else {
+                    unreachable!()
+                };
+                tail = Some(Box::new(value));
+            }
             Some(Stmt::Block(..)) => {
                 tail = Some(Box::new(block_value(
                     statements.pop().unwrap(),
@@ -519,8 +588,44 @@ fn list(l: &g::ExprList<'_>) -> Result<Vec<Expr>, String> {
         .map(expr)
         .collect()
 }
+fn match_expr(m: &g::MatchExpr<'_>) -> Result<Expr, String> {
+    let mut arms = vec![];
+    for item in &m.match_expr_list {
+        let a = &item.match_arm;
+        let p = &a.pattern;
+        let bindings = p
+            .pattern_opt
+            .as_ref()
+            .map(|p| {
+                std::iter::once(p.pattern_bindings.binding.as_ref())
+                    .chain(
+                        p.pattern_bindings
+                            .pattern_bindings_list
+                            .iter()
+                            .map(|b| b.binding.as_ref()),
+                    )
+                    .map(binding)
+                    .collect()
+            })
+            .unwrap_or_default();
+        let body = match a.arm_body.as_ref() {
+            g::ArmBody::BlockArmBodyOpt(x) => block_expr(&x.block)?,
+            g::ArmBody::StatementExprComma(x) => statement_expr(&x.statement_expr)?,
+        };
+        arms.push(MatchArm {
+            name: reference(&p.reference),
+            bindings,
+            body,
+        });
+    }
+    Ok(Expr {
+        span: Span::token(&m.r#match),
+        kind: ExprKind::Match(Box::new(expr(&m.expr)?), arms),
+    })
+}
 fn expr(e: &g::Expr<'_>) -> Result<Expr, String> {
     match e {
+        g::Expr::MatchExpr(x) => match_expr(&x.match_expr),
         g::Expr::PlainExpr(x) => plain_expr(&x.plain_expr),
         g::Expr::IfExpr(x) => {
             let x = &x.if_expr;

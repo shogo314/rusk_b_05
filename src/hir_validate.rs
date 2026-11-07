@@ -95,19 +95,40 @@ impl Check<'_> {
                             self.same(&value.ty, "Bool")?;
                             self.same(&result.ty, "Bool")?;
                         }
-                        Rvalue::OptionPresent(value) | Rvalue::OptionValue(value) => {
-                            self.value(value)?;
-                            let Type::Option(element) = &self.program.types[&value.ty] else {
-                                return Err("IR option operation requires Option".into());
+                        Rvalue::Variant { index, fields } => {
+                            let Type::Enum(variants) = &self.program.types[&result.ty] else {
+                                return Err("IR variant requires enum".into());
                             };
-                            self.same(
-                                &result.ty,
-                                if matches!(expression, Rvalue::OptionPresent(_)) {
-                                    "Bool"
-                                } else {
-                                    element
-                                },
-                            )?;
+                            let (_, types) =
+                                variants.get(*index).ok_or("invalid IR variant index")?;
+                            if types.len() != fields.len() {
+                                return Err("IR variant arity mismatch".into());
+                            }
+                            for (ty, v) in types.iter().zip(fields) {
+                                self.value(v)?;
+                                self.same(ty, &v.ty)?;
+                            }
+                        }
+                        Rvalue::VariantTest { owner, index }
+                        | Rvalue::VariantField {
+                            owner,
+                            variant: index,
+                            ..
+                        } => {
+                            self.value(owner)?;
+                            let Type::Enum(variants) = &self.program.types[&owner.ty] else {
+                                return Err("IR variant operation requires enum".into());
+                            };
+                            let (_, fields) =
+                                variants.get(*index).ok_or("invalid IR variant index")?;
+                            if let Rvalue::VariantField { index, .. } = expression {
+                                self.same(
+                                    &result.ty,
+                                    fields.get(*index).ok_or("invalid IR variant field")?,
+                                )?;
+                            } else {
+                                self.same(&result.ty, "Bool")?;
+                            }
                         }
                     }
                     self.define(result)?;
@@ -224,10 +245,14 @@ impl Program {
                         return Err("IR callable signature mismatch".into());
                     }
                 }
-                Type::Vector(t)
-                | Type::Option(t)
-                | Type::Set(t)
-                | Type::Iterator { element: t } => base.ty(t)?,
+                Type::Enum(variants) => {
+                    for (_, fields) in variants {
+                        for ty in fields {
+                            base.ty(ty)?;
+                        }
+                    }
+                }
+                Type::Vector(t) | Type::Set(t) | Type::Iterator { element: t } => base.ty(t)?,
                 Type::Dict { key, value } => {
                     base.ty(key)?;
                     base.ty(value)?;

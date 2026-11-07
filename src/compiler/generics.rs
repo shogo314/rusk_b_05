@@ -32,7 +32,7 @@ pub(super) fn substitute(text: &str, bindings: &BTreeMap<String, String>) -> Str
     }
     result
 }
-fn unify(
+pub(super) fn unify(
     pattern: &str,
     actual: &str,
     parameters: &[Name],
@@ -337,6 +337,13 @@ impl Compiler {
 fn substitute_name(name: &mut Name, bindings: &BTreeMap<String, String>) {
     name.text = substitute(&name.text, bindings);
 }
+fn substitute_reference(name: &mut Name, bindings: &BTreeMap<String, String>) {
+    if let Some((owner, variant)) = name.text.rsplit_once("::") {
+        name.text = format!("{}::{variant}", substitute(owner, bindings));
+    } else {
+        substitute_name(name, bindings);
+    }
+}
 fn substitute_expr(expr: &mut Expr, bindings: &BTreeMap<String, String>) {
     match &mut expr.kind {
         ExprKind::Block(items, tail) => {
@@ -345,6 +352,15 @@ fn substitute_expr(expr: &mut Expr, bindings: &BTreeMap<String, String>) {
             }
             if let Some(tail) = tail {
                 substitute_expr(tail, bindings);
+            }
+        }
+        ExprKind::Match(value, arms) => {
+            substitute_expr(value, bindings);
+            for arm in arms {
+                if arm.name.text.contains("::") {
+                    substitute_reference(&mut arm.name, bindings);
+                }
+                substitute_expr(&mut arm.body, bindings);
             }
         }
         ExprKind::If(a, b, c) => {
@@ -397,11 +413,12 @@ fn substitute_expr(expr: &mut Expr, bindings: &BTreeMap<String, String>) {
             }
         }
         ExprKind::Call(name, args) => {
-            substitute_name(name, bindings);
+            substitute_reference(name, bindings);
             for arg in args {
                 substitute_expr(arg, bindings);
             }
         }
+        ExprKind::Var(n) if n.text.contains("::") => substitute_reference(n, bindings),
         ExprKind::Literal(..) | ExprKind::Var(_) => {}
     }
 }
@@ -429,7 +446,7 @@ fn substitute_statement(stmt: &mut Stmt, bindings: &BTreeMap<String, String>) {
                 substitute_expr(expr, bindings);
             }
         }
-        Stmt::Expr(expr) => substitute_expr(expr, bindings),
+        Stmt::Expr(expr) | Stmt::Match(expr) => substitute_expr(expr, bindings),
         Stmt::Block(items, tail) => {
             for item in items {
                 substitute_statement(item, bindings);

@@ -34,11 +34,25 @@ pub(crate) enum Literal {
 #[derive(Clone, Debug)]
 pub(crate) enum Rvalue {
     Share(Value),
-    Field { owner: Value, index: usize },
+    Field {
+        owner: Value,
+        index: usize,
+    },
     Aggregate(Vec<Value>),
     BoolCopy(Value),
-    OptionPresent(Value),
-    OptionValue(Value),
+    Variant {
+        index: usize,
+        fields: Vec<Value>,
+    },
+    VariantTest {
+        owner: Value,
+        index: usize,
+    },
+    VariantField {
+        owner: Value,
+        variant: usize,
+        index: usize,
+    },
 }
 #[derive(Clone, Debug)]
 pub(crate) enum Place {
@@ -107,7 +121,7 @@ pub(crate) enum Type {
         result: String,
     },
     Vector(String),
-    Option(String),
+    Enum(Vec<(String, Vec<String>)>),
     Dict {
         key: String,
         value: String,

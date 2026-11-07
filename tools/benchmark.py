@@ -77,7 +77,10 @@ DICTIONARY_PY = 'import sys\nit=iter(map(int,sys.stdin.buffer.read().split()));n
 SET_RUSK = 'in n:Int;let s:=Set::<(Int,Int)>();for i in 0..n{in p:(Int,Int);s.insert(p);}let total:=0;for (a,b) in s{total+=a+b;}wt total,s.len();'
 SET_CPP = '#include <bits/stdc++.h>\nstruct Hash{size_t operator()(const std::pair<long long,long long>&p)const{return std::hash<long long>{}(p.first)^(std::hash<long long>{}(p.second)+0x9e3779b9+(std::hash<long long>{}(p.first)<<6)+(std::hash<long long>{}(p.first)>>2));}};int main(){std::ios::sync_with_stdio(false);std::cin.tie(nullptr);int n;std::cin>>n;std::unordered_set<std::pair<long long,long long>,Hash>s;while(n--){long long a,b;std::cin>>a>>b;s.insert({a,b});}long long total=0;for(auto[a,b]:s)total+=a+b;std::cout<<total<<" "<<s.size()<<"\\n";}'
 SET_PY = 'import sys\nit=iter(map(int,sys.stdin.buffer.read().split()));n=next(it);s={(next(it),next(it)) for _ in range(n)};print(sum(a+b for a,b in s),len(s))\n'
-BETA05_CASES = {'dictionary', 'tuple_set'}
+OPTION_RUSK = 'in n:Int;let total:=0;for i in 0..n{let value:=if i%3==0{None::<Int>()}else{Some(i)};total+=value??7;}wt total;'
+OPTION_CPP = '#include <iostream>\nint main(){long long n,total=0;std::cin>>n;for(long long i=0;i<n;++i)total+=(i%3==0?7:i);std::cout<<total<<"\\n";}'
+OPTION_PY = 'n=int(input());total=0\nfor i in range(n):total+=7 if i%3==0 else i\nprint(total)\n'
+BETA05_CASES = {'dictionary', 'tuple_set', 'option'}
 
 def version(command):
     result = subprocess.run(command, capture_output=True, text=True, check=True)
@@ -92,7 +95,7 @@ def main():
     parser.add_argument('--compare-no-opt', action='store_true', help='also check and measure the same compiler with --no-opt')
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--output', type=Path)
-    parser.add_argument('--case', action='append', choices=['range_sum','integer_input','integer_output','sort_search','grid_bfs','fenwick','callback_fold','callback_sort','dictionary','tuple_set'], help='run only selected cases (repeatable)')
+    parser.add_argument('--case', action='append', choices=['range_sum','integer_input','integer_output','sort_search','grid_bfs','fenwick','callback_fold','callback_sort','dictionary','tuple_set','option'], help='run only selected cases (repeatable)')
     args = parser.parse_args()
     if args.baseline_all_cases and not args.baseline_compiler:
         parser.error('--baseline-all-cases requires --baseline-compiler')
@@ -110,6 +113,7 @@ def main():
     dictionary_data=('200000\n'+' '.join(str((i*7919)%10000) for i in range(200000))+'\n').encode()
     set_data=('200000\n'+'\n'.join(f'{i%10000} {(i*7919)%10000}' for i in range(200000))+'\n').encode()
     jobs = [
+        ('option', OPTION_RUSK, OPTION_CPP, OPTION_PY, b'1000000\n', 'N=1,000,000; Some/None and ??'),
         ('dictionary', DICTIONARY_RUSK, DICTIONARY_CPP, DICTIONARY_PY, dictionary_data, 'N=200,000; 10,000 distinct keys'),
         ('tuple_set', SET_RUSK, SET_CPP, SET_PY, set_data, 'N=200,000; 10,000 distinct pairs'),
         ('callback_fold', CALLBACK_FOLD_RUSK, CALLBACK_FOLD_CPP, CALLBACK_FOLD_PY, b'1000000\n', 'N=1,000,000'),

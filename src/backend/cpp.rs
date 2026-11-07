@@ -106,10 +106,22 @@ pub(crate) fn emit(
                                 .join(",")
                         ),
                         Rvalue::BoolCopy(value) => format!("make_obj<bool>(*{})", value.id),
-                        Rvalue::OptionPresent(value) => {
-                            format!("make_obj<bool>(bool({}->value))", value.id)
+                        Rvalue::Variant { index, fields } => format!(
+                            "rusk_enum_make<{native},{index}>({})",
+                            fields
+                                .iter()
+                                .map(|v| v.id.to_string())
+                                .collect::<Vec<_>>()
+                                .join(",")
+                        ),
+                        Rvalue::VariantTest { owner, index } => {
+                            format!("make_obj<bool>({}->value.index()=={index})", owner.id)
                         }
-                        Rvalue::OptionValue(value) => format!("{}->value", value.id),
+                        Rvalue::VariantField {
+                            owner,
+                            variant,
+                            index,
+                        } => format!("std::get<{variant}>({}->value).field_{index}", owner.id),
                     };
                     out += &format!("{}{}={rhs};\n", declaration(result), result.id);
                 }

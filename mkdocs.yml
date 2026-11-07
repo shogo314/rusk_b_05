@@ -17,6 +17,7 @@ nav:
       - 型・共有・評価の規則: reference/semantics.md
       - β02の型とライブラリ分割: reference/beta02.md
       - ブロック式とラベル付きループ: reference/blocks-labels.md
+      - enumとmatch: reference/enums.md
       - 分岐式・Option・比較の連鎖: reference/beta05.md
       - β04の関数と捕捉: reference/beta04.md
       - エラーと制限: reference/errors.md
@@ -31,6 +32,7 @@ nav:
       - テストの実行: development/verification.md
       - β02の性能確認: development/beta02-performance.md
       - β03の高速化と検証: development/beta03.md
+      - enumとOption移行: development/enums.md
       - β05の実装と検証: development/beta05.md
       - β04の実装と検証: development/beta04.md
       - ドキュメントの編集と公開: development/documentation.md

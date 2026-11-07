@@ -21,7 +21,7 @@
 次のキーワードは変数名などに使わないでください。
 
 ```text
-include struct fn return extern type symbol let in wt
+include struct enum match fn return extern type symbol let in wt
 if else for while loop break continue true false
 ```
 
@@ -31,7 +31,7 @@ if else for while loop break continue true false
 
 ```ebnf
 program       = { statement } ;
-statement     = include | struct_definition | function_definition
+statement     = include | struct_definition | enum_definition | match_expression [ ";" ] | function_definition
               | extern_type | extern_function | extern_symbol
               | let_statement | input | output | return_statement
               | if_statement | for_statement | while_statement
@@ -237,3 +237,17 @@ properties      = { identifier ":" string_literal "," } ;
 ```
 
 プロパティの値は文字列です。各プロパティには最後の項目を含めて `,` が必要です。型の `cpp_name`、関数の `cpp_name` / `code`、共通コードの `code` などの契約は [開発ガイド](../development/index.md) を参照してください。
+
+## enumとmatch
+
+```ebnf
+enum_definition = "enum" identifier [ type_parameters ] "{" [ variants ] "}" ;
+variants = variant { "," variant } [ "," ] ;
+variant = identifier [ "(" type { "," type } ")" ] ;
+match_expression = "match" expression "{" { match_arm } "}" ;
+match_arm = pattern "=>" (block [ "," ] | plain_expression ",") ;
+pattern = reference [ "(" binding { "," binding } ")" ] ;
+reference = identifier [ "::" type_arguments ] { "::" identifier } ;
+```
+
+`match_expression` は式の先頭に使えます。型検査ではenumと網羅的なarmを要求します。`_` は全variantに一致し、payloadの束縛には変数・`_`・タプル分解を使えます。説明と完全なプログラム例は[enumとmatch](enums.md)を参照してください。

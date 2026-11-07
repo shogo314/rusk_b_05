@@ -2,7 +2,12 @@
 #include <unordered_set>
 #include <functional>
 #include <chrono>
-template<class T> struct RuskOption { Obj<T> value; };
+#include <variant>
+template<class E,std::size_t I,class... A>
+Obj<E> rusk_enum_make(A&&... args){
+    using V=std::variant_alternative_t<I,decltype(E::value)>;
+    return make_obj<E>(E{decltype(E::value){std::in_place_index<I>,V{std::forward<A>(args)...}}});
+}
 template<class T> std::size_t rusk_hash_value(const Obj<T>& x) { return std::hash<T>{}(*x); }
 inline void rusk_hash_combine(std::size_t& hash,std::size_t part) {hash^=part+std::size_t(0x9e3779b9)+(hash<<6)+(hash>>2);}
 inline std::uint64_t rusk_mix_hash(std::uint64_t x) {

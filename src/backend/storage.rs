@@ -18,10 +18,10 @@ pub(super) fn persistent(function: &Function) -> BTreeSet<ValueId> {
                     match expression {
                         Rvalue::Share(v)
                         | Rvalue::BoolCopy(v)
-                        | Rvalue::OptionPresent(v)
-                        | Rvalue::OptionValue(v) => add(&v.id),
+                        | Rvalue::VariantTest { owner: v, .. }
+                        | Rvalue::VariantField { owner: v, .. } => add(&v.id),
                         Rvalue::Field { owner, .. } => add(&owner.id),
-                        Rvalue::Aggregate(fields) => {
+                        Rvalue::Aggregate(fields) | Rvalue::Variant { fields, .. } => {
                             for v in fields {
                                 add(&v.id);
                             }

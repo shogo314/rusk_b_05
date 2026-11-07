@@ -93,7 +93,13 @@ impl Compiler {
             .1
             .text
             .clone();
-        Ok(self.emit(&ty, format!("{}->field_{index}", tuple.cpp)))
+        Ok(self.emit(
+            &ty,
+            Rvalue::Field {
+                owner: tuple.clone(),
+                index,
+            },
+        ))
     }
 
     pub(super) fn declare_binding(
@@ -151,7 +157,7 @@ impl Compiler {
             ("__ge__", "!value_less(a,b)"),
         ] {
             let cpp = format!("{name}_{native}");
-            self.functions.push(Function { name: Name { text:name.into(), span:record.name.span.clone() }, params:vec![ty.clone();2], result:"Bool".into(), cpp:cpp.clone(), code:format!("Obj<bool> {cpp}(Obj<{native}> a, Obj<{native}> b, Loc) {{ return make_obj<bool>({expression}); }}"), body:None });
+            self.functions.push(Function { name: Name { text:name.into(), span:record.name.span.clone() }, params:vec![ty.clone();2], result:"Bool".into(), cpp:cpp.clone(), code:format!("Obj<bool> {cpp}(Obj<{native}> a, Obj<{native}> b, Loc) {{ return make_obj<bool>({expression}); }}"), body:None, checked:None });
         }
         let cpp = format!("write_{native}");
         self.functions.push(Function {
@@ -164,6 +170,7 @@ impl Compiler {
             cpp: cpp.clone(),
             code: format!("void {cpp}(Obj<{native}> value, Loc) {{ write_value(value); }}"),
             body: None,
+            checked: None,
         });
         Ok(())
     }
@@ -226,6 +233,10 @@ impl Compiler {
         left: &Expr,
         value: Value,
     ) -> Result<Value, String> {
+        if value.is_never() {
+            return Ok(Value::never());
+        }
+
         if let ExprKind::Tuple(targets) = &left.kind {
             if !value.ty.starts_with("Tuple<") {
                 return Err(left.span.error("tuple assignment requires a tuple value"));
@@ -250,8 +261,10 @@ impl Compiler {
             ExprKind::Var(name) => {
                 let target = self.find_var(name)?;
                 self.same(&target.ty, &value.ty, &left.span)?;
-                self.body
-                    .push_str(&format!("{} = {};\n", target.cpp, value.cpp));
+                self.body.push(Instruction::Rebind {
+                    target: Place::Local(target.id),
+                    value: value.clone(),
+                });
                 for scope in self.scopes.iter_mut().rev() {
                     if let Some(variable) = scope.get_mut(&name.text) {
                         variable.initialized = true;
@@ -264,8 +277,10 @@ impl Compiler {
                 let owner = self.expr(owner, None)?;
                 let (index, ty) = self.field(&owner.ty, name)?;
                 self.same(&ty, &value.ty, &left.span)?;
-                self.body
-                    .push_str(&format!("{}->field_{index} = {};\n", owner.cpp, value.cpp));
+                self.body.push(Instruction::Rebind {
+                    target: Place::Field { owner, index },
+                    value: value.clone(),
+                });
                 Ok(value)
             }
             ExprKind::Index(owner, index) => {
@@ -274,10 +289,13 @@ impl Compiler {
                     let position = literal_index(index)?;
                     let item = self.tuple_item(&owner, position, &index.span)?;
                     self.same(&item.ty, &value.ty, &left.span)?;
-                    self.body.push_str(&format!(
-                        "{}->field_{position} = {};\n",
-                        owner.cpp, value.cpp
-                    ));
+                    self.body.push(Instruction::Rebind {
+                        target: Place::Field {
+                            owner,
+                            index: position,
+                        },
+                        value: value.clone(),
+                    });
                     Ok(value)
                 } else {
                     let index = self.expr(index, Some("Int"))?;
@@ -303,17 +321,6 @@ impl Compiler {
             span: span.clone(),
         };
         self.check_type(&name)?;
-        let native = self.types[&name.text].clone();
-        Ok(self.emit(
-            &name.text,
-            format!(
-                "make_obj<{native}>({native}{{{}}})",
-                values
-                    .iter()
-                    .map(|v| v.cpp.clone())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-        ))
+        Ok(self.emit(&name.text, Rvalue::Aggregate(values)))
     }
 }

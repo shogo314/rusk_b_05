@@ -326,6 +326,7 @@ impl Compiler {
                     .collect(),
                 Box::new(body),
             )),
+            checked: None,
         });
         self.generic_instances.insert(key, index);
         self.generic_calls.insert(index, span.clone());
@@ -338,6 +339,30 @@ fn substitute_name(name: &mut Name, bindings: &BTreeMap<String, String>) {
 }
 fn substitute_expr(expr: &mut Expr, bindings: &BTreeMap<String, String>) {
     match &mut expr.kind {
+        ExprKind::Block(items, tail) => {
+            for item in items {
+                substitute_statement(item, bindings);
+            }
+            if let Some(tail) = tail {
+                substitute_expr(tail, bindings);
+            }
+        }
+        ExprKind::If(a, b, c) => {
+            substitute_expr(a, bindings);
+            substitute_expr(b, bindings);
+            substitute_expr(c, bindings);
+        }
+        ExprKind::CompareChain(first, rest) => {
+            substitute_expr(first, bindings);
+            for (_, value, _) in rest {
+                substitute_expr(value, bindings);
+            }
+        }
+        ExprKind::Unwrap(value) => substitute_expr(value, bindings),
+        ExprKind::Coalesce(a, b) => {
+            substitute_expr(a, bindings);
+            substitute_expr(b, bindings);
+        }
         ExprKind::Lambda(parameters, body) => {
             for (_, ty) in parameters {
                 substitute_name(ty, bindings);
@@ -405,11 +430,15 @@ fn substitute_statement(stmt: &mut Stmt, bindings: &BTreeMap<String, String>) {
             }
         }
         Stmt::Expr(expr) => substitute_expr(expr, bindings),
-        Stmt::Block(items) => {
+        Stmt::Block(items, tail) => {
             for item in items {
                 substitute_statement(item, bindings);
             }
+            if let Some(tail) = tail {
+                substitute_expr(tail, bindings);
+            }
         }
+        Stmt::Labeled(_, body) => substitute_statement(body, bindings),
         Stmt::If(condition, body, other)
         | Stmt::While(condition, body, other)
         | Stmt::For(_, condition, body, other) => {

@@ -68,6 +68,7 @@ impl Compiler {
                 cpp,
                 code,
                 body: None,
+                checked: None,
             });
         }
         self.prepared_records.insert(name.into());
@@ -77,6 +78,17 @@ impl Compiler {
 
     fn check_record_cycle(&self, name: &Name, path: &mut Vec<String>) -> Result<(), String> {
         let Some(record) = self.records.get(&name.text) else {
+            if let Some((_, args)) = super::tuples::type_parts(&name.text) {
+                for arg in args {
+                    self.check_record_cycle(
+                        &Name {
+                            text: arg.into(),
+                            span: name.span.clone(),
+                        },
+                        path,
+                    )?;
+                }
+            }
             return Ok(());
         };
         if path.contains(&name.text) {
@@ -144,7 +156,7 @@ impl Compiler {
             let mut copies = vec![];
             for (_, ty) in &record.fields {
                 let value = Value {
-                    cpp: String::new(),
+                    id: ValueId::Probe,
                     ty: ty.text.clone(),
                 };
                 let index = self
@@ -180,6 +192,9 @@ impl Compiler {
     }
 
     pub(super) fn field(&self, ty: &str, name: &Name) -> Result<(usize, String), String> {
+        if ty == crate::hir::DIVERGED {
+            return Err(crate::hir::DIVERGED.into());
+        }
         if self.callables.contains_key(ty) {
             return Err(name.span.error("callable environment fields are private"));
         }
@@ -220,7 +235,7 @@ impl Compiler {
             }
             let value = self.expr(expr, Some(&ty))?;
             self.same(&ty, &value.ty, &expr.span)?;
-            values.insert(index, value.cpp);
+            values.insert(index, value);
         }
         for (index, (field, _)) in record.fields.iter().enumerate() {
             if !values.contains_key(&index) {
@@ -229,11 +244,9 @@ impl Compiler {
                     .error(format!("missing field '{}' in '{}'", field.text, name.text)));
             }
         }
-        let native = self.types[&name.text].clone();
-        let arguments = values.into_values().collect::<Vec<_>>().join(", ");
         Ok(self.emit(
             &name.text,
-            format!("make_obj<{native}>({native}{{{arguments}}})"),
+            Rvalue::Aggregate(values.into_values().collect()),
         ))
     }
 }

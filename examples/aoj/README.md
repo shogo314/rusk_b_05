@@ -1,6 +1,6 @@
 # AOJ の解答例
 
-今のRuskで書いた34問・36解答です。基本入出力、番兵付きループ、配列・行列、ソート、二分探索、DPに加え、β04の関数の受け渡し・構造体付きDijkstra・セグメント木の境界探索も検証します。EOFまで入力する形式や浮動小数点が必要な問題は見送っています。
+今のRuskで書いた35問・39解答です。基本入出力、番兵付きループ、配列・行列、ソート、二分探索、DPに加え、β04の関数の受け渡し・構造体付きDijkstra・セグメント木の境界探索も検証します。β05では集合、OptionによるEOF確認、多次元一括入力も使います。浮動小数点が必要な問題は見送っています。
 
 `online-judge-tools/verification-helper` がAOJの公開テストケースを取得し、生成したC++20の実行結果を検証します。テストケースの独自コピーは収録しません。
 
@@ -49,3 +49,6 @@ oj-verify run examples/aoj/dpl_1_d.test.rusk
 | [DSL_3_A](https://onlinejudge.u-aizu.ac.jp/problems/DSL_3_A) | min_leftによる別解 | [dsl_3_a_min_left.test.rusk](dsl_3_a_min_left.test.rusk) |
 | [GRL_1_A](https://onlinejudge.u-aizu.ac.jp/problems/GRL_1_A) | 構造体と比較関数付き優先度キューによるDijkstra | [grl_1_a.test.rusk](grl_1_a.test.rusk) |
 | [ITP1_4_D](https://onlinejudge.u-aizu.ac.jp/problems/ITP1_4_D) | タプルを蓄積するfoldの別解 | [itp1_4_d_fold.test.rusk](itp1_4_d_fold.test.rusk) |
+| [ALDS1_4_C](https://onlinejudge.u-aizu.ac.jp/problems/ALDS1_4_C) | 文字列のSetとif式 | [alds1_4_c.test.rusk](alds1_4_c.test.rusk) |
+| [ITP1_6_D](https://onlinejudge.u-aizu.ac.jp/problems/ITP1_6_D) | 多次元一括入力の別解 | [itp1_6_d_bulk.test.rusk](itp1_6_d_bulk.test.rusk) |
+| [ITP1_3_C](https://onlinejudge.u-aizu.ac.jp/problems/ITP1_3_C) | try_read・ブロック式・ラベル付きbreak・タプルのif式 | [itp1_3_c_option.test.rusk](itp1_3_c_option.test.rusk) |

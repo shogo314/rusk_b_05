@@ -16,17 +16,22 @@ nav:
       - 文法一覧（EBNF）: reference/grammar.md
       - 型・共有・評価の規則: reference/semantics.md
       - β02の型とライブラリ分割: reference/beta02.md
+      - ブロック式とラベル付きループ: reference/blocks-labels.md
+      - 分岐式・Option・比較の連鎖: reference/beta05.md
       - β04の関数と捕捉: reference/beta04.md
       - エラーと制限: reference/errors.md
   - ライブラリ:
+      - 辞書・集合と不在を返す操作: library/beta05.md
       - 標準ライブラリ: library/index.md
       - Ruskで記述したデータ構造: library/data-structures.md
       - 関数を使う操作とデータ構造: library/beta04.md
   - 開発ガイド:
+      - 変換パイプラインとIR: development/pipeline.md
       - 開発の進め方: development/index.md
       - テストの実行: development/verification.md
       - β02の性能確認: development/beta02-performance.md
       - β03の高速化と検証: development/beta03.md
+      - β05の実装と検証: development/beta05.md
       - β04の実装と検証: development/beta04.md
       - ドキュメントの編集と公開: development/documentation.md
 markdown_extensions:

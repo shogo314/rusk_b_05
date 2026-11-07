@@ -1,5 +1,20 @@
-//! Typed value/call IR and C++ lowering. Semantic analysis never chooses scalar
-//! storage: the backend recognizes trusted standard-library operations only.
+//! Target-specific representation selection and C++ emission from LIR.
 mod cpp;
 mod intrinsics;
-pub(crate) mod ir;
+mod program;
+mod storage;
+pub(crate) use program::{Context, emit as emit_program};
+pub(crate) struct FunctionInfo {
+    pub cpp: String,
+    pub name: String,
+    pub result: String,
+    pub trusted: bool,
+}
+pub(crate) use cpp::emit as cpp;
+
+#[derive(Clone, Copy)]
+pub(crate) enum Emit {
+    Cpp,
+    Hir,
+    Lir,
+}

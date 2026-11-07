@@ -5,10 +5,12 @@ template<class T> class RuskTemporary {
     T value;
     mutable Obj<T> shared;
 public:
+    RuskTemporary() : value{} {}
     explicit RuskTemporary(T initial) : value(std::move(initial)) {}
     RuskTemporary(const RuskTemporary&) = delete;
     RuskTemporary& operator=(const RuskTemporary&) = delete;
     RuskTemporary(RuskTemporary&&) = default;
+    RuskTemporary& operator=(RuskTemporary&&) = default;
     operator Obj<T>() const {
         if (!shared) shared = make_obj<T>(value);
         return shared;

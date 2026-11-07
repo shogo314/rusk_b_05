@@ -130,11 +130,16 @@ pub struct Expr {
 #[derive(Clone, Debug)]
 pub enum ExprKind {
     Literal(String, String),
+    Block(Vec<Stmt>, Option<Box<Expr>>),
     Array(Vec<Expr>),
     Tuple(Vec<Expr>),
     Repeat(Box<Expr>, Box<Expr>),
     Range(Box<Expr>, Box<Expr>),
     Logical(String, Box<Expr>, Box<Expr>),
+    If(Box<Expr>, Box<Expr>, Box<Expr>),
+    Coalesce(Box<Expr>, Box<Expr>),
+    Unwrap(Box<Expr>),
+    CompareChain(Box<Expr>, Vec<(String, Expr, Span)>),
     Index(Box<Expr>, Box<Expr>),
     Field(Box<Expr>, Name),
     Record(Name, Vec<(Name, Expr)>),
@@ -168,13 +173,14 @@ pub enum Stmt {
     Let(Binding, Option<Name>, Option<Initializer>),
     Input(Vec<(Name, Name, Vec<Expr>)>),
     Output(Vec<Expr>),
-    Block(Vec<Stmt>),
+    Block(Vec<Stmt>, Option<Box<Expr>>),
+    Labeled(Name, Box<Stmt>),
     If(Expr, Box<Stmt>, Option<Box<Stmt>>),
     While(Expr, Box<Stmt>, Option<Box<Stmt>>),
     For(Binding, Expr, Box<Stmt>, Option<Box<Stmt>>),
     Loop(Box<Stmt>),
-    Break(Span),
-    Continue(Span),
+    Break(Span, Option<Name>),
+    Continue(Span, Option<Name>),
     Expr(Expr),
 }
 fn props(p: &g::Properties<'_>) -> Result<BTreeMap<String, String>, String> {
@@ -194,13 +200,22 @@ pub fn lower(root: &g::Rusk<'_>) -> Result<Vec<Stmt>, String> {
     root.rusk_list.iter().map(|s| stmt(&s.statement)).collect()
 }
 fn stmt(s: &g::Statement<'_>) -> Result<Stmt, String> {
+    match s {
+        g::Statement::SimpleStatement(x) => simple_stmt(&x.simple_statement),
+        g::Statement::BlockStatement(x) => block_statement(&x.block_statement),
+        g::Statement::StatementExprSemicolon(x) => {
+            Ok(Stmt::Expr(statement_expr(&x.statement_expr)?))
+        }
+    }
+}
+fn simple_stmt(s: &g::SimpleStatement<'_>) -> Result<Stmt, String> {
     Ok(match s {
-        g::Statement::Include(x) => Stmt::Include(
+        g::SimpleStatement::Include(x) => Stmt::Include(
             serde_json::from_str(x.include.string_literal.string_literal.text())
                 .map_err(|e| Span::token(&x.include.string_literal.string_literal).error(e))?,
             Span::token(&x.include.string_literal.string_literal),
         ),
-        g::Statement::StructDef(x) => Stmt::Struct(
+        g::SimpleStatement::StructDef(x) => Stmt::Struct(
             name(&x.struct_def.identifier),
             x.struct_def
                 .struct_def_opt
@@ -218,15 +233,15 @@ fn stmt(s: &g::Statement<'_>) -> Result<Stmt, String> {
                 })
                 .collect(),
         ),
-        g::Statement::ExternType(x) => Stmt::Type(
+        g::SimpleStatement::ExternType(x) => Stmt::Type(
             type_name(&x.extern_type.type_name),
             props(&x.extern_type.properties)?,
         ),
-        g::Statement::ExternSymbol(x) => Stmt::Symbol(
+        g::SimpleStatement::ExternSymbol(x) => Stmt::Symbol(
             name(&x.extern_symbol.identifier),
             props(&x.extern_symbol.properties)?,
         ),
-        g::Statement::ExternFn(x) => {
+        g::SimpleStatement::ExternFn(x) => {
             let x = &x.extern_fn;
             let mut params = vec![];
             if let Some(p) = &x.parameters.parameters_opt {
@@ -248,7 +263,7 @@ fn stmt(s: &g::Statement<'_>) -> Result<Stmt, String> {
                 props(&x.properties)?,
             )
         }
-        g::Statement::Function(x) => {
+        g::SimpleStatement::Function(x) => {
             let x = &x.function;
             let mut params = vec![];
             if let Some(p) = &x.parameters.parameters_opt {
@@ -274,7 +289,7 @@ fn stmt(s: &g::Statement<'_>) -> Result<Stmt, String> {
                 Box::new(block(&x.block)?),
             )
         }
-        g::Statement::Return(x) => Stmt::Return(
+        g::SimpleStatement::Return(x) => Stmt::Return(
             Span::token(&x.r#return.r#return),
             x.r#return
                 .return_opt
@@ -282,7 +297,7 @@ fn stmt(s: &g::Statement<'_>) -> Result<Stmt, String> {
                 .map(|x| expr(&x.expr))
                 .transpose()?,
         ),
-        g::Statement::Let(x) => {
+        g::SimpleStatement::Let(x) => {
             let x = &x.r#let;
             Stmt::Let(
                 binding(&x.binding),
@@ -299,7 +314,7 @@ fn stmt(s: &g::Statement<'_>) -> Result<Stmt, String> {
                     .transpose()?,
             )
         }
-        g::Statement::Input(x) => {
+        g::SimpleStatement::Input(x) => {
             let mut items = vec![];
             for item in std::iter::once(x.input.input_item.as_ref())
                 .chain(x.input.input_list.iter().map(|i| i.input_item.as_ref()))
@@ -319,49 +334,181 @@ fn stmt(s: &g::Statement<'_>) -> Result<Stmt, String> {
             }
             Stmt::Input(items)
         }
-        g::Statement::Output(x) => Stmt::Output(list(&x.output.expr_list)?),
-        g::Statement::Block(x) => block(&x.block)?,
-        g::Statement::If(x) => Stmt::If(
-            expr(&x.r#if.expr)?,
-            Box::new(block(&x.r#if.block)?),
-            x.r#if
-                .if_opt
-                .as_ref()
-                .map(|x| block(&x.block).map(Box::new))
-                .transpose()?,
+        g::SimpleStatement::Output(x) => Stmt::Output(list(&x.output.expr_list)?),
+        g::SimpleStatement::If(x) => {
+            let statement = Stmt::If(
+                expr(&x.r#if.expr)?,
+                Box::new(block(&x.r#if.block)?),
+                x.r#if
+                    .if_opt
+                    .as_ref()
+                    .map(|x| block(&x.block).map(Box::new))
+                    .transpose()?,
+            );
+            if x.r#if.if_opt0.is_some() {
+                Stmt::Expr(Expr {
+                    span: expr(&x.r#if.expr)?.span,
+                    kind: ExprKind::Block(vec![statement], None),
+                })
+            } else {
+                statement
+            }
+        }
+        g::SimpleStatement::For(x) => for_stmt(&x.r#for)?,
+        g::SimpleStatement::While(x) => while_stmt(&x.r#while)?,
+        g::SimpleStatement::Loop(x) => Stmt::Loop(Box::new(block(&x.r#loop.block)?)),
+        g::SimpleStatement::Break(x) => Stmt::Break(
+            Span::token(&x.r#break.r#break),
+            x.r#break.break_opt.as_ref().map(|x| name(&x.identifier)),
         ),
-        g::Statement::For(x) => Stmt::For(
-            binding(&x.r#for.binding),
-            expr(&x.r#for.expr)?,
-            Box::new(block(&x.r#for.block)?),
-            x.r#for
-                .for_opt
+        g::SimpleStatement::Continue(x) => Stmt::Continue(
+            Span::token(&x.r#continue.r#continue),
+            x.r#continue
+                .continue_opt
                 .as_ref()
-                .map(|x| block(&x.block).map(Box::new))
-                .transpose()?,
+                .map(|x| name(&x.identifier)),
         ),
-        g::Statement::While(x) => Stmt::While(
-            expr(&x.r#while.expr)?,
-            Box::new(block(&x.r#while.block)?),
-            x.r#while
-                .while_opt
-                .as_ref()
-                .map(|x| block(&x.block).map(Box::new))
-                .transpose()?,
+        g::SimpleStatement::LabeledLoop(x) => Stmt::Labeled(
+            loop_label(&x.labeled_loop.loop_label)?,
+            Box::new(match x.labeled_loop.loop_statement.as_ref() {
+                g::LoopStatement::For(x) => for_stmt(&x.r#for)?,
+                g::LoopStatement::While(x) => while_stmt(&x.r#while)?,
+                g::LoopStatement::Loop(x) => Stmt::Loop(Box::new(block(&x.r#loop.block)?)),
+            }),
         ),
-        g::Statement::Loop(x) => Stmt::Loop(Box::new(block(&x.r#loop.block)?)),
-        g::Statement::Break(x) => Stmt::Break(Span::token(&x.r#break.r#break)),
-        g::Statement::Continue(x) => Stmt::Continue(Span::token(&x.r#continue.r#continue)),
-        g::Statement::ExprSemicolon(x) => Stmt::Expr(expr(&x.expr)?),
     })
 }
-fn block(b: &g::Block<'_>) -> Result<Stmt, String> {
-    Ok(Stmt::Block(
-        b.block_list
-            .iter()
-            .map(|s| stmt(&s.statement))
-            .collect::<Result<_, _>>()?,
+fn loop_label(label: &g::LoopLabel<'_>) -> Result<Name, String> {
+    let name = Name {
+        text: label
+            .loop_label
+            .text()
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '_')
+            .collect(),
+        span: Span::token(&label.loop_label),
+    };
+    if matches!(
+        name.text.as_str(),
+        "include"
+            | "struct"
+            | "fn"
+            | "return"
+            | "extern"
+            | "type"
+            | "symbol"
+            | "let"
+            | "in"
+            | "wt"
+            | "if"
+            | "else"
+            | "for"
+            | "while"
+            | "loop"
+            | "break"
+            | "continue"
+            | "true"
+            | "false"
+    ) {
+        return Err(name.span.error("reserved keyword cannot be a loop label"));
+    }
+    Ok(name)
+}
+fn for_stmt(x: &g::For<'_>) -> Result<Stmt, String> {
+    Ok(Stmt::For(
+        binding(&x.binding),
+        expr(&x.expr)?,
+        Box::new(block(&x.block)?),
+        x.for_opt
+            .as_ref()
+            .map(|x| block(&x.block).map(Box::new))
+            .transpose()?,
     ))
+}
+fn while_stmt(x: &g::While<'_>) -> Result<Stmt, String> {
+    Ok(Stmt::While(
+        expr(&x.expr)?,
+        Box::new(block(&x.block)?),
+        x.while_opt
+            .as_ref()
+            .map(|x| block(&x.block).map(Box::new))
+            .transpose()?,
+    ))
+}
+fn block_statement(b: &g::BlockStatement<'_>) -> Result<Stmt, String> {
+    if b.block_statement_opt.is_some() {
+        Ok(Stmt::Expr(block_expr(&b.block)?))
+    } else {
+        block(&b.block)
+    }
+}
+fn block_parts(
+    items: &g::BlockItems<'_>,
+    statements: &mut Vec<Stmt>,
+) -> Result<Option<Box<Expr>>, String> {
+    match items {
+        g::BlockItems::SimpleStatementBlockItems(x) => {
+            statements.push(simple_stmt(&x.simple_statement)?);
+            block_parts(&x.block_items, statements)
+        }
+        g::BlockItems::BlockStatementBlockItems(x) => {
+            statements.push(block_statement(&x.block_statement)?);
+            block_parts(&x.block_items, statements)
+        }
+        g::BlockItems::StatementExprBlockTail(x) => {
+            let value = statement_expr(&x.statement_expr)?;
+            match x.block_tail.as_ref() {
+                g::BlockTail::SemicolonBlockItems(tail) => {
+                    statements.push(Stmt::Expr(value));
+                    block_parts(&tail.block_items, statements)
+                }
+                g::BlockTail::BlockTailEmpty(_) => Ok(Some(Box::new(value))),
+            }
+        }
+        g::BlockItems::BlockItemsEmpty(_) => Ok(None),
+    }
+}
+fn block(b: &g::Block<'_>) -> Result<Stmt, String> {
+    let mut statements = vec![];
+    let tail = block_parts(&b.block_items, &mut statements)?;
+    Ok(Stmt::Block(statements, tail))
+}
+fn block_value(statement: Stmt, span: Span) -> Expr {
+    let Stmt::Block(mut statements, mut tail) = statement else {
+        unreachable!()
+    };
+    if tail.is_none() {
+        match statements.last() {
+            Some(Stmt::If(_, _, Some(_))) => {
+                let Stmt::If(condition, yes, Some(no)) = statements.pop().unwrap() else {
+                    unreachable!()
+                };
+                let position = condition.span.clone();
+                tail = Some(Box::new(Expr {
+                    span: position.clone(),
+                    kind: ExprKind::If(
+                        Box::new(condition),
+                        Box::new(block_value(*yes, position.clone())),
+                        Box::new(block_value(*no, position)),
+                    ),
+                }));
+            }
+            Some(Stmt::Block(..)) => {
+                tail = Some(Box::new(block_value(
+                    statements.pop().unwrap(),
+                    span.clone(),
+                )));
+            }
+            _ => {}
+        }
+    }
+    Expr {
+        kind: ExprKind::Block(statements, tail),
+        span,
+    }
+}
+fn block_expr(b: &g::Block<'_>) -> Result<Expr, String> {
+    Ok(block_value(block(b)?, Span::token(&b.l_brace)))
 }
 fn list(l: &g::ExprList<'_>) -> Result<Vec<Expr>, String> {
     let Some(x) = &l.expr_list_opt else {
@@ -373,161 +520,192 @@ fn list(l: &g::ExprList<'_>) -> Result<Vec<Expr>, String> {
         .collect()
 }
 fn expr(e: &g::Expr<'_>) -> Result<Expr, String> {
-    let e = match e {
-        g::Expr::Lambda(x) => return lambda(&x.lambda),
-        g::Expr::RangeExprOpt(x) => x,
-    };
-    let left = range(&e.range)?;
-    if let Some(x) = &e.expr_opt {
-        let (op, t) = match x.assign_op.as_ref() {
-            g::AssignOp::ColonEqu(x) => (":=", &x.colon_equ),
-            g::AssignOp::Equ(x) => ("=", &x.equ),
-            g::AssignOp::PlusEqu(x) => ("+=", &x.plus_equ),
-            g::AssignOp::MinusEqu(x) => ("-=", &x.minus_equ),
-            g::AssignOp::StarEqu(x) => ("*=", &x.star_equ),
-            g::AssignOp::SlashEqu(x) => ("/=", &x.slash_equ),
-            g::AssignOp::PercentEqu(x) => ("%=", &x.percent_equ),
-        };
-        return Ok(Expr {
-            kind: ExprKind::Assign(op.into(), Box::new(left), Box::new(expr(&x.expr)?)),
-            span: Span::token(t),
-        });
-    }
-    Ok(left)
-}
-fn range(e: &g::Range<'_>) -> Result<Expr, String> {
-    let left = logical_or(&e.logical_or)?;
-    if let Some(right) = &e.range_opt {
-        let span = left.span.clone();
-        Ok(Expr {
-            kind: ExprKind::Range(Box::new(left), Box::new(logical_or(&right.logical_or)?)),
-            span,
-        })
-    } else {
-        Ok(left)
+    match e {
+        g::Expr::PlainExpr(x) => plain_expr(&x.plain_expr),
+        g::Expr::IfExpr(x) => {
+            let x = &x.if_expr;
+            Ok(Expr {
+                span: Span::token(&x.r#if),
+                kind: ExprKind::If(
+                    Box::new(expr(&x.expr)?),
+                    Box::new(block_expr(&x.block)?),
+                    Box::new(block_expr(&x.block0)?),
+                ),
+            })
+        }
     }
 }
-fn logical_or(e: &g::LogicalOr<'_>) -> Result<Expr, String> {
-    let mut left = logical_and(&e.logical_and)?;
-    for right in &e.logical_or_list {
-        let span = left.span.clone();
-        left = Expr {
-            kind: ExprKind::Logical(
-                "||".into(),
-                Box::new(left),
-                Box::new(logical_and(&right.logical_and)?),
-            ),
-            span,
-        };
-    }
-    Ok(left)
-}
-fn logical_and(e: &g::LogicalAnd<'_>) -> Result<Expr, String> {
-    let mut left = bit_or(&e.bit_or)?;
-    for right in &e.logical_and_list {
-        let span = left.span.clone();
-        left = Expr {
-            kind: ExprKind::Logical(
-                "&&".into(),
-                Box::new(left),
-                Box::new(bit_or(&right.bit_or)?),
-            ),
-            span,
-        };
-    }
-    Ok(left)
-}
-fn bit_or(e: &g::BitOr<'_>) -> Result<Expr, String> {
-    let mut left = bit_xor(&e.bit_xor)?;
-    for right in &e.bit_or_list {
-        let span = left.span.clone();
-        left = Expr {
-            kind: ExprKind::Binary(
-                "|".into(),
-                Box::new(left),
-                Box::new(bit_xor(&right.bit_xor)?),
-            ),
-            span,
-        };
-    }
-    Ok(left)
-}
-fn bit_xor(e: &g::BitXor<'_>) -> Result<Expr, String> {
-    let mut left = bit_and(&e.bit_and)?;
-    for right in &e.bit_xor_list {
-        let span = left.span.clone();
-        left = Expr {
-            kind: ExprKind::Binary(
-                "^".into(),
-                Box::new(left),
-                Box::new(bit_and(&right.bit_and)?),
-            ),
-            span,
-        };
-    }
-    Ok(left)
-}
-fn bit_and(e: &g::BitAnd<'_>) -> Result<Expr, String> {
-    let mut left = compare(&e.compare)?;
-    for right in &e.bit_and_list {
-        let span = left.span.clone();
-        left = Expr {
-            kind: ExprKind::Binary(
-                "&".into(),
-                Box::new(left),
-                Box::new(compare(&right.compare)?),
-            ),
-            span,
-        };
-    }
-    Ok(left)
-}
-fn compare(e: &g::Compare<'_>) -> Result<Expr, String> {
-    let left = add(&e.add)?;
-    let Some(x) = &e.compare_opt else {
-        return Ok(left);
-    };
-    let (op, t) = match x.compare_op.as_ref() {
-        g::CompareOp::EquEqu(x) => ("==", &x.equ_equ),
-        g::CompareOp::BangEqu(x) => ("!=", &x.bang_equ),
-        g::CompareOp::LT(x) => ("<", &x.l_t),
-        g::CompareOp::LTEqu(x) => ("<=", &x.l_t_equ),
-        g::CompareOp::GT(x) => (">", &x.g_t),
-        g::CompareOp::GTEqu(x) => (">=", &x.g_t_equ),
+fn assignment(left: Expr, op: &g::AssignOp<'_>, right: &g::Expr<'_>) -> Result<Expr, String> {
+    let (op, t) = match op {
+        g::AssignOp::ColonEqu(x) => (":=", &x.colon_equ),
+        g::AssignOp::Equ(x) => ("=", &x.equ),
+        g::AssignOp::PlusEqu(x) => ("+=", &x.plus_equ),
+        g::AssignOp::MinusEqu(x) => ("-=", &x.minus_equ),
+        g::AssignOp::StarEqu(x) => ("*=", &x.star_equ),
+        g::AssignOp::SlashEqu(x) => ("/=", &x.slash_equ),
+        g::AssignOp::PercentEqu(x) => ("%=", &x.percent_equ),
     };
     Ok(Expr {
-        kind: ExprKind::Binary(op.into(), Box::new(left), Box::new(add(&x.add)?)),
         span: Span::token(t),
+        kind: ExprKind::Assign(op.into(), Box::new(left), Box::new(expr(right)?)),
     })
 }
-fn add(e: &g::Add<'_>) -> Result<Expr, String> {
-    let mut left = mul(&e.mul)?;
-    for x in &e.add_list {
-        let (op, t) = match x.add_op.as_ref() {
-            g::AddOp::Plus(x) => ("+", &x.plus),
-            g::AddOp::Minus(x) => ("-", &x.minus),
-        };
-        left = Expr {
-            kind: ExprKind::Binary(op.into(), Box::new(left), Box::new(mul(&x.mul)?)),
-            span: Span::token(t),
-        };
+fn plain_expr(e: &g::PlainExpr<'_>) -> Result<Expr, String> {
+    match e {
+        g::PlainExpr::Lambda(x) => lambda(&x.lambda),
+        g::PlainExpr::BinaryPlainExprOpt(x) => {
+            let first = unary(&x.binary.unary)?;
+            let rest = x
+                .binary
+                .binary_list
+                .iter()
+                .map(|x| Ok((binary_op(&x.binary_op), unary(&x.unary)?)))
+                .collect::<Result<Vec<_>, String>>()?;
+            let value = binary(first, rest)?;
+            if let Some(tail) = &x.plain_expr_opt {
+                assignment(value, &tail.assign_op, &tail.expr)
+            } else {
+                Ok(value)
+            }
+        }
     }
-    Ok(left)
 }
-fn mul(e: &g::Mul<'_>) -> Result<Expr, String> {
-    let mut left = unary(&e.unary)?;
-    for x in &e.mul_list {
-        let (op, t) = match x.mul_op.as_ref() {
-            g::MulOp::Star(x) => ("*", &x.star),
-            g::MulOp::Slash(x) => ("/", &x.slash),
-            g::MulOp::Percent(x) => ("%", &x.percent),
-        };
-        left = Expr {
-            kind: ExprKind::Binary(op.into(), Box::new(left), Box::new(unary(&x.unary)?)),
-            span: Span::token(t),
-        };
+fn statement_expr(e: &g::StatementExpr<'_>) -> Result<Expr, String> {
+    match e {
+        g::StatementExpr::Lambda(x) => lambda(&x.lambda),
+        g::StatementExpr::StatementBinaryStatementExprOpt(x) => {
+            let first = match x.statement_binary.statement_unary.as_ref() {
+                g::StatementUnary::UnaryOpUnary(x) => unary_value(&x.unary_op, unary(&x.unary)?),
+                g::StatementUnary::StatementPostfix(x) => {
+                    let mut value = non_block_primary(&x.statement_postfix.non_block_primary)?;
+                    for item in &x.statement_postfix.statement_postfix_list {
+                        value = suffix(value, &item.suffix)?;
+                    }
+                    value
+                }
+            };
+            let rest = x
+                .statement_binary
+                .statement_binary_list
+                .iter()
+                .map(|x| Ok((binary_op(&x.binary_op), unary(&x.unary)?)))
+                .collect::<Result<Vec<_>, String>>()?;
+            let value = binary(first, rest)?;
+            if let Some(tail) = &x.statement_expr_opt {
+                assignment(value, &tail.assign_op, &tail.expr)
+            } else {
+                Ok(value)
+            }
+        }
     }
-    Ok(left)
+}
+fn unary_value(op: &g::UnaryOp<'_>, value: Expr) -> Expr {
+    let (op, t) = match op {
+        g::UnaryOp::Plus(x) => ("+", &x.plus),
+        g::UnaryOp::Minus(x) => ("-", &x.minus),
+        g::UnaryOp::Bang(x) => ("!", &x.bang),
+    };
+    Expr {
+        span: Span::token(t),
+        kind: ExprKind::Unary(op.into(), Box::new(value)),
+    }
+}
+fn binary_op(op: &g::BinaryOp<'_>) -> (String, Span) {
+    let token = match op {
+        g::BinaryOp::QuestQuest(x) => &x.quest_quest,
+        g::BinaryOp::DotDot(x) => &x.dot_dot,
+        g::BinaryOp::OrOr(x) => &x.or_or,
+        g::BinaryOp::AmpAmp(x) => &x.amp_amp,
+        g::BinaryOp::Or(x) => &x.or,
+        g::BinaryOp::Circumflex(x) => &x.circumflex,
+        g::BinaryOp::Amp(x) => &x.amp,
+        g::BinaryOp::EquEqu(x) => &x.equ_equ,
+        g::BinaryOp::BangEqu(x) => &x.bang_equ,
+        g::BinaryOp::LT(x) => &x.l_t,
+        g::BinaryOp::LTEqu(x) => &x.l_t_equ,
+        g::BinaryOp::GT(x) => &x.g_t,
+        g::BinaryOp::GTEqu(x) => &x.g_t_equ,
+        g::BinaryOp::Plus(x) => &x.plus,
+        g::BinaryOp::Minus(x) => &x.minus,
+        g::BinaryOp::Star(x) => &x.star,
+        g::BinaryOp::Slash(x) => &x.slash,
+        g::BinaryOp::Percent(x) => &x.percent,
+    };
+    (token.text().into(), Span::token(token))
+}
+fn precedence(op: &str) -> u8 {
+    match op {
+        "??" => 1,
+        ".." => 2,
+        "||" => 3,
+        "&&" => 4,
+        "|" => 5,
+        "^" => 6,
+        "&" => 7,
+        "==" | "!=" | "<" | "<=" | ">" | ">=" => 8,
+        "+" | "-" => 9,
+        "*" | "/" | "%" => 10,
+        _ => unreachable!(),
+    }
+}
+fn binary(first: Expr, rest: Vec<((String, Span), Expr)>) -> Result<Expr, String> {
+    let mut values = std::iter::once(first).chain(rest.iter().map(|(_, v)| v.clone()));
+    let first = values.next().unwrap();
+    let mut ops = rest
+        .iter()
+        .map(|((op, span), _)| (op.clone(), span.clone()))
+        .peekable();
+    fn parse(
+        left: Expr,
+        minimum: u8,
+        values: &mut impl Iterator<Item = Expr>,
+        ops: &mut std::iter::Peekable<impl Iterator<Item = (String, Span)>>,
+    ) -> Result<Expr, String> {
+        let mut left = left;
+        while let Some((op, _)) = ops.peek() {
+            let p = precedence(op);
+            if p < minimum {
+                break;
+            }
+            let (op, span) = ops.next().unwrap();
+            let right = parse(
+                values.next().unwrap(),
+                if op == "??" { p } else { p + 1 },
+                values,
+                ops,
+            )?;
+            if p == 8 {
+                let mut rest = vec![(op, right, span.clone())];
+                while ops.peek().is_some_and(|(op, _)| precedence(op) == 8) {
+                    let (op, span) = ops.next().unwrap();
+                    let right = parse(values.next().unwrap(), 9, values, ops)?;
+                    rest.push((op, right, span));
+                }
+                let kind = if rest.len() == 1 {
+                    let (op, right, _) = rest.pop().unwrap();
+                    ExprKind::Binary(op, Box::new(left), Box::new(right))
+                } else {
+                    ExprKind::CompareChain(Box::new(left), rest)
+                };
+                left = Expr { span, kind };
+                continue;
+            }
+            let kind = match op.as_str() {
+                "??" => ExprKind::Coalesce(Box::new(left), Box::new(right)),
+                ".." => {
+                    if matches!(left.kind, ExprKind::Range(..)) {
+                        return Err(span.error("range operators cannot be chained"));
+                    }
+                    ExprKind::Range(Box::new(left), Box::new(right))
+                }
+                "&&" | "||" => ExprKind::Logical(op, Box::new(left), Box::new(right)),
+                _ => ExprKind::Binary(op, Box::new(left), Box::new(right)),
+            };
+            left = Expr { span, kind };
+        }
+        Ok(left)
+    }
+    parse(first, 1, &mut values, &mut ops)
 }
 fn unary(e: &g::Unary<'_>) -> Result<Expr, String> {
     match e {
@@ -547,35 +725,48 @@ fn unary(e: &g::Unary<'_>) -> Result<Expr, String> {
 }
 fn postfix(p: &g::Postfix<'_>) -> Result<Expr, String> {
     let mut value = primary(&p.primary)?;
-    for suffix in &p.postfix_list {
-        value = match suffix.suffix.as_ref() {
-            g::Suffix::Index(x) => Expr {
-                kind: ExprKind::Index(Box::new(value), Box::new(expr(&x.index.expr)?)),
-                span: Span::token(&x.index.l_bracket),
-            },
-            g::Suffix::Member(x) => {
-                let n = name(&x.member.identifier);
-                Expr {
-                    span: n.span.clone(),
-                    kind: ExprKind::Field(Box::new(value), n),
-                }
-            }
-            g::Suffix::Invoke(x) => {
-                let span = value.span.clone();
-                let args = list(&x.invoke.expr_list)?;
-                let kind = match value.kind {
-                    ExprKind::Var(n) => ExprKind::Call(n, args),
-                    _ => ExprKind::Invoke(Box::new(value), args),
-                };
-                Expr { span, kind }
-            }
-        };
+    for item in &p.postfix_list {
+        value = suffix(value, &item.suffix)?;
     }
     Ok(value)
 }
+fn suffix(value: Expr, suffix: &g::Suffix<'_>) -> Result<Expr, String> {
+    Ok(match suffix {
+        g::Suffix::Unwrap(x) => Expr {
+            kind: ExprKind::Unwrap(Box::new(value)),
+            span: Span::token(&x.unwrap.unwrap),
+        },
+        g::Suffix::Index(x) => Expr {
+            kind: ExprKind::Index(Box::new(value), Box::new(expr(&x.index.expr)?)),
+            span: Span::token(&x.index.l_bracket),
+        },
+        g::Suffix::Member(x) => {
+            let n = name(&x.member.identifier);
+            Expr {
+                span: n.span.clone(),
+                kind: ExprKind::Field(Box::new(value), n),
+            }
+        }
+        g::Suffix::Invoke(x) => {
+            let span = value.span.clone();
+            let args = list(&x.invoke.expr_list)?;
+            let kind = match value.kind {
+                ExprKind::Var(n) => ExprKind::Call(n, args),
+                _ => ExprKind::Invoke(Box::new(value), args),
+            };
+            Expr { span, kind }
+        }
+    })
+}
 fn primary(e: &g::Primary<'_>) -> Result<Expr, String> {
+    match e {
+        g::Primary::Block(x) => block_expr(&x.block),
+        g::Primary::NonBlockPrimary(x) => non_block_primary(&x.non_block_primary),
+    }
+}
+fn non_block_primary(e: &g::NonBlockPrimary<'_>) -> Result<Expr, String> {
     Ok(match e {
-        g::Primary::Array(x) => {
+        g::NonBlockPrimary::Array(x) => {
             let kind = if let Some(items) = &x.array.array_opt {
                 let first = expr(&items.expr)?;
                 match items.array_tail.as_ref() {
@@ -601,9 +792,9 @@ fn primary(e: &g::Primary<'_>) -> Result<Expr, String> {
                 span: Span::token(&x.array.l_bracket),
             }
         }
-        g::Primary::LParenExprPrimaryOpt0RParen(x) => {
+        g::NonBlockPrimary::LParenExprNonBlockPrimaryOpt0RParen(x) => {
             let first = expr(&x.expr)?;
-            if let Some(tail) = &x.primary_opt0 {
+            if let Some(tail) = &x.non_block_primary_opt0 {
                 let mut values = vec![first];
                 values.push(expr(&tail.tuple_tail.expr)?);
                 for item in &tail.tuple_tail.tuple_tail_list {
@@ -617,11 +808,11 @@ fn primary(e: &g::Primary<'_>) -> Result<Expr, String> {
                 return Ok(first);
             }
         }
-        g::Primary::ReferencePrimaryOpt(x) => {
+        g::NonBlockPrimary::ReferenceNonBlockPrimaryOpt(x) => {
             let n = reference(&x.reference);
             Expr {
                 span: n.span.clone(),
-                kind: if let Some(record) = &x.primary_opt {
+                kind: if let Some(record) = &x.non_block_primary_opt {
                     let fields = &record.record_fields;
                     let values = std::iter::once(fields.field_value.as_ref())
                         .chain(
@@ -638,7 +829,7 @@ fn primary(e: &g::Primary<'_>) -> Result<Expr, String> {
                 },
             }
         }
-        g::Primary::Literal(x) => {
+        g::NonBlockPrimary::Literal(x) => {
             let (ty, t) = match x.literal.as_ref() {
                 g::Literal::IntLiteral(x) => ("Int", &x.int_literal.int_literal),
                 g::Literal::StringLiteral(x) => ("Str", &x.string_literal.string_literal),

@@ -9,7 +9,7 @@ pub(super) struct IteratorType {
 }
 
 impl Compiler {
-    fn native_function(
+    pub(super) fn native_function(
         &mut self,
         name: &str,
         params: Vec<String>,
@@ -34,6 +34,7 @@ impl Compiler {
             cpp,
             code,
             body: None,
+            checked: None,
         });
         Ok(index)
     }
@@ -61,13 +62,13 @@ impl Compiler {
         }
         Ok(f)
     }
-    fn copy_function(&mut self, ty: &str, span: &Span) -> Result<String, String> {
+    pub(super) fn copy_function(&mut self, ty: &str, span: &Span) -> Result<String, String> {
         let id = self
             .resolve(
                 "copy",
                 &[Value {
                     ty: ty.into(),
-                    cpp: String::new(),
+                    id: ValueId::Probe,
                 }],
                 None,
                 span,
@@ -88,6 +89,8 @@ impl Compiler {
             "Int".into()
         } else if let Some(it) = self.iterator_types.get(&source.ty) {
             it.element.clone()
+        } else if let Some(element) = self.collection_element(&source.ty) {
+            element
         } else {
             return Err(span.error("expected an array, integer range, or lazy iterator"));
         };
@@ -97,7 +100,7 @@ impl Compiler {
         let iterator = self.functions[create].result.clone();
         let dummy = Value {
             ty: iterator.clone(),
-            cpp: String::new(),
+            id: ValueId::Probe,
         };
         let has = self
             .resolve(
@@ -198,6 +201,7 @@ impl Compiler {
                 cpp: has_name,
                 code,
                 body: None,
+                checked: None,
             });
             let has_id = self.functions.len() - 1;
             self.used.insert(has_id);
@@ -211,6 +215,7 @@ impl Compiler {
                 cpp: next_name,
                 code: String::new(),
                 body: None,
+                checked: None,
             });
             self.native_function(
                 "__iter__",
@@ -377,6 +382,7 @@ impl Compiler {
             code.push_str(&it.definition);
         }
         code.push_str("template<class T> void rusk_guard_iter(const Obj<T>&,Loc){}\ntemplate<class T> void rusk_guard_iter(const Obj<RuskIter<T>>& it,Loc loc){check_iter(it,loc);}\n");
+        code.push_str(&self.container_guards());
         for it in self.iterator_types.values() {
             let native = &it.native;
             code.push_str(&format!(

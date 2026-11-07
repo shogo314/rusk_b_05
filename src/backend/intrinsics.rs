@@ -1,28 +1,29 @@
-use super::ir::Call;
+use super::FunctionInfo;
+use crate::hir::Call;
 
 /// Only operations resolved to the embedded standard library are lowered.
 /// The generated scalar result is a fresh value, never a snapshot of an alias.
-pub(super) fn lower(call: &Call) -> Option<String> {
-    if !call.trusted {
+pub(super) fn lower(call: &Call, info: &FunctionInfo) -> Option<String> {
+    if !info.trusted {
         return None;
     }
     let args = &call.args;
     let a = args
         .first()
-        .map(|v| format!("*{}", v.cpp))
+        .map(|v| format!("*{}", v.id))
         .unwrap_or_default();
     let b = args
         .get(1)
-        .map(|v| format!("*{}", v.cpp))
+        .map(|v| format!("*{}", v.id))
         .unwrap_or_default();
-    let first = args.first().map(|v| v.cpp.as_str()).unwrap_or_default();
+    let first = args.first().map(|v| v.id.to_string()).unwrap_or_default();
     let ty = args.first().map(|v| v.ty.as_str()).unwrap_or_default();
     let scalar = matches!(ty, "Int" | "Bool" | "Char");
     let integers = args.len() == 2 && args.iter().all(|v| v.ty == "Int");
-    let loc = crate::compiler::location(&call.span);
-    match call.name.as_str() {
+    let loc = super::cpp::location(&call.span);
+    match info.name.as_str() {
         "__add__" | "__sub__" | "__mul__" if integers => {
-            let op = match call.name.as_str() {
+            let op = match info.name.as_str() {
                 "__add__" => "+",
                 "__sub__" => "-",
                 _ => "*",
@@ -33,10 +34,10 @@ pub(super) fn lower(call: &Call) -> Option<String> {
         }
         "__div__" | "__mod__" if integers => Some(format!(
             "rusk_{}_int({a}, {b}, {loc})",
-            if call.name == "__div__" { "div" } else { "mod" }
+            if info.name == "__div__" { "div" } else { "mod" }
         )),
         "__bitand__" | "__bitor__" | "__bitxor__" if integers => {
-            let op = match call.name.as_str() {
+            let op = match info.name.as_str() {
                 "__bitand__" => "&",
                 "__bitor__" => "|",
                 _ => "^",
@@ -46,7 +47,7 @@ pub(super) fn lower(call: &Call) -> Option<String> {
         "__eq__" | "__ne__" | "__lt__" | "__le__" | "__gt__" | "__ge__"
             if scalar || ty == "Str" =>
         {
-            let op = match call.name.as_str() {
+            let op = match info.name.as_str() {
                 "__eq__" => "==",
                 "__ne__" => "!=",
                 "__lt__" => "<",
@@ -69,7 +70,7 @@ pub(super) fn lower(call: &Call) -> Option<String> {
             } else {
                 format!("!{first}->empty()")
             };
-            Some(if call.name == "__not__" {
+            Some(if info.name == "__not__" {
                 format!("!({value})")
             } else {
                 value

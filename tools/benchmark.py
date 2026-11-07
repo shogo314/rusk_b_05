@@ -71,6 +71,14 @@ CALLBACK_SORT_CPP = '#include <bits/stdc++.h>\nint main(){std::ios::sync_with_st
 CALLBACK_SORT_PY = 'import sys\nit=iter(map(int,sys.stdin.buffer.read().split()));n=next(it);a=sorted(((next(it),i) for i in range(n)),key=lambda x:x[0]);sys.stdout.write("".join(str(k)+" "+str(i)+"\\n" for k,i in a))\n'
 MANUAL_RUSK = {'callback_fold':CALLBACK_FOLD_MANUAL,'callback_sort':CALLBACK_SORT_MANUAL}
 
+DICTIONARY_RUSK = 'in n:Int;let d:=Dict::<Int,Int>();for i in 0..n{in key:Int;d[key]+=1;}let total:=0;for (key,value) in d{total+=key*value;}wt total,d.len();'
+DICTIONARY_CPP = '#include <bits/stdc++.h>\nint main(){std::ios::sync_with_stdio(false);std::cin.tie(nullptr);int n;std::cin>>n;std::unordered_map<long long,long long>d;while(n--){long long k;std::cin>>k;++d[k];}long long total=0;for(auto[k,v]:d)total+=k*v;std::cout<<total<<" "<<d.size()<<"\\n";}'
+DICTIONARY_PY = 'import sys\nit=iter(map(int,sys.stdin.buffer.read().split()));n=next(it);d={}\nfor k in it:d[k]=d.get(k,0)+1\nprint(sum(k*v for k,v in d.items()),len(d))\n'
+SET_RUSK = 'in n:Int;let s:=Set::<(Int,Int)>();for i in 0..n{in p:(Int,Int);s.insert(p);}let total:=0;for (a,b) in s{total+=a+b;}wt total,s.len();'
+SET_CPP = '#include <bits/stdc++.h>\nstruct Hash{size_t operator()(const std::pair<long long,long long>&p)const{return std::hash<long long>{}(p.first)^(std::hash<long long>{}(p.second)+0x9e3779b9+(std::hash<long long>{}(p.first)<<6)+(std::hash<long long>{}(p.first)>>2));}};int main(){std::ios::sync_with_stdio(false);std::cin.tie(nullptr);int n;std::cin>>n;std::unordered_set<std::pair<long long,long long>,Hash>s;while(n--){long long a,b;std::cin>>a>>b;s.insert({a,b});}long long total=0;for(auto[a,b]:s)total+=a+b;std::cout<<total<<" "<<s.size()<<"\\n";}'
+SET_PY = 'import sys\nit=iter(map(int,sys.stdin.buffer.read().split()));n=next(it);s={(next(it),next(it)) for _ in range(n)};print(sum(a+b for a,b in s),len(s))\n'
+BETA05_CASES = {'dictionary', 'tuple_set'}
+
 def version(command):
     result = subprocess.run(command, capture_output=True, text=True, check=True)
     return (result.stdout or result.stderr).strip().splitlines()[0]
@@ -80,11 +88,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', type=Path, default=ROOT/'target/debug/rusk')
     parser.add_argument('--baseline-compiler', type=Path, help='compare a previous Rusk compiler on the same inputs')
+    parser.add_argument('--baseline-all-cases', action='store_true', help='baseline supports every selected case, including beta04 callbacks and beta05 containers')
     parser.add_argument('--compare-no-opt', action='store_true', help='also check and measure the same compiler with --no-opt')
     parser.add_argument('--repeats', type=int, default=3)
     parser.add_argument('--output', type=Path)
-    parser.add_argument('--case', action='append', choices=['range_sum','integer_input','integer_output','sort_search','grid_bfs','fenwick','callback_fold','callback_sort'], help='run only selected cases (repeatable)')
+    parser.add_argument('--case', action='append', choices=['range_sum','integer_input','integer_output','sort_search','grid_bfs','fenwick','callback_fold','callback_sort','dictionary','tuple_set'], help='run only selected cases (repeatable)')
     args = parser.parse_args()
+    if args.baseline_all_cases and not args.baseline_compiler:
+        parser.error('--baseline-all-cases requires --baseline-compiler')
     if args.repeats < 1:
         parser.error('--repeats must be positive')
     pypy = shutil.which('pypy3')
@@ -96,7 +107,11 @@ def main():
     operations = [f"0 {(i*7919)%fenwick_n} {i%100}" if i%2==0 else f"1 0 {(i*12347)%fenwick_n}" for i in range(fenwick_q)]
     fenwick_data = (f"{fenwick_n} {fenwick_q}\n"+'\n'.join(operations)+'\n').encode()
     sort_data = ('100000\n'+' '.join(str((i*7919)%97) for i in range(100_000))+'\n').encode()
+    dictionary_data=('200000\n'+' '.join(str((i*7919)%10000) for i in range(200000))+'\n').encode()
+    set_data=('200000\n'+'\n'.join(f'{i%10000} {(i*7919)%10000}' for i in range(200000))+'\n').encode()
     jobs = [
+        ('dictionary', DICTIONARY_RUSK, DICTIONARY_CPP, DICTIONARY_PY, dictionary_data, 'N=200,000; 10,000 distinct keys'),
+        ('tuple_set', SET_RUSK, SET_CPP, SET_PY, set_data, 'N=200,000; 10,000 distinct pairs'),
         ('callback_fold', CALLBACK_FOLD_RUSK, CALLBACK_FOLD_CPP, CALLBACK_FOLD_PY, b'1000000\n', 'N=1,000,000'),
         ('callback_sort', CALLBACK_SORT_RUSK, CALLBACK_SORT_CPP, CALLBACK_SORT_PY, sort_data, 'N=100,000'),
         ('integer_input', INPUT_RUSK, INPUT_CPP, INPUT_PY, integer_data, 'N=1,000,000'),
@@ -130,7 +145,7 @@ def main():
                 subprocess.run([str(args.compiler.resolve()),'compile',str(temp/'manual.rusk'),'-o',str(temp/'manual.cpp')],check=True)
                 subprocess.run(['g++','-std=c++20','-O2',str(temp/'manual.cpp'),'-o',str(temp/'manual')],check=True)
                 commands['Rusk manual']=[str(temp/'manual')]
-            if args.baseline_compiler and name not in MANUAL_RUSK:
+            if args.baseline_compiler and (args.baseline_all_cases or (name not in MANUAL_RUSK and name not in BETA05_CASES)):
                 subprocess.run([str(args.baseline_compiler.resolve()),'compile',str(temp/'main.rusk'),'-o',str(temp/'previous.cpp')],check=True)
                 subprocess.run(['g++','-std=c++20','-O2',str(temp/'previous.cpp'),'-o',str(temp/'previous')],check=True)
                 commands['Rusk baseline']=[str(temp/'previous')]

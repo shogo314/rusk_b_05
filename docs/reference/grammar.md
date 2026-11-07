@@ -1,6 +1,6 @@
 # 文法一覧
 
-このページはβ04のパーサーが受け付ける文法を説明します。β04では型付きの無名関数と、式の結果に対する呼び出しを追加しています。構文上書けることと、型検査を通ることは別です。例えばブロック内の関数定義は文法上は解析できますが、意味の検査でトップレベル以外の定義を拒否します。実装の原本はリポジトリの `rusk.par` です。
+このページはβ05のパーサーが受け付ける文法を説明します。ブロック式、ラベル付きループ、if式、Optionの演算子、比較の連鎖にも対応します。演算子の優先順位と結合はAST構築時に確定します。構文上書けることと、型検査を通ることは別です。例えばブロック内の関数定義は文法上は解析できますが、意味の検査でトップレベル以外の定義を拒否します。実装の原本はリポジトリの `rusk.par` です。
 
 ## 表記と字句
 
@@ -25,7 +25,7 @@ include struct fn return extern type symbol let in wt
 if else for while loop break continue true false
 ```
 
-`__Rusk` で始まる型名は処理系内部用のため定義できません。`Int`、`Bool`、`Char`、`Str`、`Unit` は標準型名、`Vec` と `Tuple` は処理系が扱う型構築子です。`__add__` などの名前は演算フックにも使うため、通常の変数・関数には説明的な名前を使います。
+`__Rusk` で始まる型名は処理系内部用のため定義できません。`Int`、`Bool`、`Char`、`Str`、`Unit` は標準型名、`Vec`・`Tuple`・`Option`・`Dict`・`Set` は処理系が扱う型構築子です。`Some`・`None`・`Option`・`Dict`・`Set`・`try_read` は組み込み構築用の関数名として予約しています。`__add__` などの名前は演算フックにも使うため、通常の変数・関数には説明的な名前を使います。
 
 ## プログラムと文
 
@@ -36,12 +36,13 @@ statement     = include | struct_definition | function_definition
               | let_statement | input | output | return_statement
               | if_statement | for_statement | while_statement
               | loop_statement | break_statement | continue_statement
-              | block | expression ";" ;
-block         = "{" { statement } "}" ;
+              | labeled_loop | block [ ";" ] | plain_expression ";" ;
+block         = "{" { statement } [ expression ] "}" ;
+labeled_loop  = identifier ":" (for_statement | while_statement | loop_statement) ;
 include       = "include" string_literal ";" ;
 return_statement   = "return" [ expression ] ";" ;
-break_statement    = "break" ";" ;
-continue_statement = "continue" ";" ;
+break_statement    = "break" [ identifier ] ";" ;
+continue_statement = "continue" [ identifier ] ";" ;
 ```
 
 実行文はファイルの先頭から順に実行します。`main` 関数を書く必要はありません。型・関数・外部宣言・`include` はトップレベルに置きます。型・関数の定義は使用箇所より後でも構いません。`include` 先の実行文は読み込み位置へ展開されます。
@@ -116,22 +117,22 @@ wt n, q, s;
 wt;                            // 改行のみ
 ```
 
-`in` は既存変数の更新ではなく宣言です。同じスコープに同名の変数があるとエラーです。項目は左から処理されるので `in n: Int, a(n): Vec<Int>;` と書けます。括弧の引数は入力関数 `__read__` へ渡す値で、標準の配列入力では長さを一つ渡します。`in a: Vec<Int>;` のように長さを省く標準配列入力や、多次元配列の一括入力はありません。
+`in` は既存変数の更新ではなく宣言です。同じスコープに同名の変数があるとエラーです。項目は左から処理されるので `in n: Int, a(n): Vec<Int>;` と書けます。括弧の引数は入力関数 `__read__` へ渡す値で、標準の配列入力では各次元に長さを一つ渡します。`in grid(h,w):Vec<Vec<Int>>;`、`in pairs(n):Vec<(Int,Str)>;` と書けます。タプルの入力も可能です。`in a: Vec<Int>;` のような長さの省略はできません。
 
 `wt` は式を左から順に評価して出力し、式の間に空白を一つ、末尾に改行を出します。`wt a, b;` は出力文の2引数で、タプルを作る場合は `wt (a, b);` です。
 
 ## 制御構文
 
 ```ebnf
-if_statement    = "if" expression block [ "else" block ] ;
+if_statement    = "if" expression block [ "else" block ] [ ";" ] ;
 for_statement   = "for" binding "in" expression block [ "else" block ] ;
 while_statement = "while" expression block [ "else" block ] ;
 loop_statement  = "loop" block ;
 ```
 
-条件の丸括弧は不要ですが、`if (x > 0) { ... }` と付けても構いません。本体の `{ ... }` は省略できません。`else if` はなく、`else { if ... }` と書きます。`if` とループは値を返す式ではありません。
+条件の丸括弧は不要ですが、`if (x > 0) { ... }` と付けても構いません。本体の `{ ... }` は省略できません。`else if` はなく、`else { if ... }` と書きます。ループは値を返しません。`if`文とは別に、各分岐をブロック式で書く[if式](beta05.md)があります。
 
-`for` と `while` の `else` は、`break` せずに終了した場合だけ実行します。空の走査や最初から偽の条件でも実行します。`loop` には `else` を付けられません。`break` と `continue` は最も内側のループに作用し、ラベルはありません。
+`for` と `while` の `else` は、`break` せずに終了した場合だけ実行します。空の走査や最初から偽の条件でも実行します。`loop` には `else` を付けられません。`break` と `continue` はラベルを省略すると最も内側のループに作用します。`outer: for ...`、`break outer;`、`continue outer;`も使えます。[ブロック式とラベル](blocks-labels.md)を参照してください。
 
 ## 式と優先順位
 
@@ -139,23 +140,27 @@ loop_statement  = "loop" block ;
 
 | 順位 | 構文 | 結合・制限 |
 |---|---|---|
-| 1 | `a[i]`、`a.field`、`a.method(...)` | 左から連結 |
+| 1 | `a[i]`、`a.field`、`a.method(...)`、`a?!` | 左から連結 |
 | 2 | 単項 `+`、`-`、`!` | 右結合 |
 | 3 | `*`、`/`、`%` | 左結合 |
 | 4 | `+`、`-` | 左結合 |
-| 5 | `==`、`!=`、`<`、`<=`、`>`、`>=` | 1回だけ。連鎖比較は不可 |
+| 5 | `==`、`!=`、`<`、`<=`、`>`、`>=` | 短絡する比較の連鎖 |
 | 6 | `&` | 左結合 |
 | 7 | `^` | 左結合 |
 | 8 | `\|` | 左結合 |
 | 9 | `&&` | 左結合・短絡評価 |
 | 10 | `\|\|` | 左結合・短絡評価 |
 | 11 | `..` | 1回だけ |
-| 12 | `:=`、`=`、`+=`、`-=`、`*=`、`/=`、`%=` | 右結合 |
+| 12 | `??` | 右結合・不在時だけ右辺を評価 |
+| 13 | `:=`、`=`、`+=`、`-=`、`*=`、`/=`、`%=` | 右結合 |
 
-比較はビット演算より強いため、ビットを調べるときは `(mask & bit) != 0` と括弧を付けます。`0 <= x < n` は書けません。`0 <= x && x < n` と書きます。シフト・ビット反転・ビット複合代入・`++`・`--`・三項演算子は未実装です。
+比較はビット演算より強いため、ビットを調べるときは `(mask & bit) != 0` と括弧を付けます。`0 <= x < n` は各隣接項を比較し、偽になった時点で評価を止めます。シフト・ビット反転・ビット複合代入・`++`・`--`・三項演算子は未実装です。
 
 ```ebnf
-expression = lambda | range [ assignment_operator expression ] ;
+expression = if_expression | plain_expression ;
+plain_expression = lambda | coalesce [ assignment_operator expression ] ;
+if_expression = "if" expression block "else" block ;
+coalesce   = range [ "??" coalesce ] ;
 lambda     = "(" parameters ")" "=>" expression ;
 range      = logical_or [ ".." logical_or ] ;
 logical_or = logical_and { "||" logical_and } ;
@@ -163,12 +168,12 @@ logical_and = bit_or { "&&" bit_or } ;
 bit_or     = bit_xor { "|" bit_xor } ;
 bit_xor    = bit_and { "^" bit_and } ;
 bit_and    = comparison { "&" comparison } ;
-comparison = addition [ comparison_operator addition ] ;
+comparison = addition { comparison_operator addition } ;
 addition   = multiplication { ("+" | "-") multiplication } ;
 multiplication = unary { ("*" | "/" | "%") unary } ;
 unary      = ("+" | "-" | "!") unary | postfix ;
 postfix    = primary { "[" expression "]"
-                    | "." identifier | "(" expression_list ")" } ;
+                    | "." identifier | "(" expression_list ")" | "?!" } ;
 assignment_operator = ":=" | "=" | "+=" | "-=" | "*=" | "/=" | "%=" ;
 comparison_operator = "==" | "!=" | "<" | "<=" | ">" | ">=" ;
 ```
@@ -176,7 +181,7 @@ comparison_operator = "==" | "!=" | "<" | "<=" | ">" | ">=" ;
 ### 値・呼び出し・構築
 
 ```ebnf
-primary    = array | literal
+primary    = block | array | literal
            | reference [ record_fields ]
            | "(" expression [ tuple_tail ] ")" ;
 reference  = identifier [ "::" type_arguments ] ;
@@ -214,6 +219,8 @@ literal       = integer_literal | string_literal | character_literal
 | 関数の引数 `f(1, 2,)`・定義の仮引数 | 不可 |
 | 型引数・型仮引数 `<Int,>`・`<T,>` | 不可 |
 | タプル型 `(Int, Str,)`・分解 `(a, b,)` | 不可 |
+
+ブロックの末尾のセミコロンなしの式が結果になります。末尾の式がなければUnitです。文頭のブロックはブロック文として解析するため、演算や呼び出しへつなぐ場合は `({ ... })` と括弧で囲みます。末尾のif/elseもブロックの結果にできます。文法の実装では文と末尾式を左因子化し、CSTの二項演算列からASTで優先順位を組み立てています。
 
 `()`, `(1,)` は単独の値として使えません。`() => expression` は引数なしの無名関数として使えます。`Unit` の値を `()` と表記する構文もありません。
 

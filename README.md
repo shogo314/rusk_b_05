@@ -8,17 +8,21 @@
 
 ## 現在の状態
 
-β05は、β04で完成した関数の静的な受け渡し・捕捉、遅延走査・集計・探索、汎用データ構造を土台に開発を始めます。β05の追加機能と完成条件はこれから決めます。前段階の範囲は [β04の要件](design/beta04.md) と [実装方式・検証結果](docs/development/beta04.md) に記録しています。
+β05では、if式、`Option<T>` と `??`・`?!`、比較の連鎖、ハッシュ型の辞書・集合、多次元配列とタプルの一括入力を追加しています。[要件](design/beta05.md)、[分岐と不在の仕様](docs/reference/beta05.md)、[辞書・集合と入力API](docs/library/beta05.md)、[実装・検証・性能測定](docs/development/beta05.md)を参照してください。
 
 Rust と Parol で、競技プログラミングの基本問題を記述できるプロトタイプを実装しています。C++20 に変換し、基本型の入出力、検査付き整数演算、共有・コピー・代入、短絡論理演算、条件分岐、while / for、再帰・オーバーロードを含む関数定義が使えます。
 
 配列は基本型・構造体・タプル・多次元配列に対応し、一括入力、ソート、二分探索を備えます。ASCII 文字列の添字更新・連結・型変換も使えます。配列の合計、ソートと探索、グリッド BFS、再帰による剰余累乗の実行例は [`examples/prototype/`](examples/prototype/) にあります。
 
-プロトタイプの対象範囲と検証手順は [開発ガイド](docs/development/index.md) を参照してください。型引数を持つ関数・構造体の具体化、タプルと分解、`include` によるファイル分割に対応しています。β03ではバッファ入出力と基本値の一時結果の確保削減、比較用の `--no-opt` を追加しています。[実装方式と性能測定](docs/development/beta03.md) を参照してください。β04では無名関数の捕捉と静的な受け渡し、遅延map/filter、集計・探索・キー付きソート、優先度付きキュー・汎用セグメント木にも対応します。[文法と捕捉](docs/reference/beta04.md) と [API](docs/library/beta04.md) を参照してください。内側の名前付き関数、浮動小数点、辞書・集合などは未実装です。設計ノートには検討中・保留中の案も含まれます。
+プロトタイプの対象範囲と検証手順は [開発ガイド](docs/development/index.md) を参照してください。型引数を持つ関数・構造体の具体化、タプルと分解、`include` によるファイル分割に対応しています。β03ではバッファ入出力と基本値の一時結果の確保削減、比較用の `--no-opt` を追加しています。[実装方式と性能測定](docs/development/beta03.md) を参照してください。β04では無名関数の捕捉と静的な受け渡し、遅延map/filter、集計・探索・キー付きソート、優先度付きキュー・汎用セグメント木にも対応します。[文法と捕捉](docs/reference/beta04.md) と [API](docs/library/beta04.md) を参照してください。内側の名前付き関数、浮動小数点、readonly、汎用enum/matchなどは未実装です。設計ノートには検討中・保留中の案も含まれます。
 
 [AtCoderの解答例](examples/atcoder/README.md) は100問を収録しています。整数・文字列処理、全探索、ソート、シミュレーション、DP、グリッド処理を使い、公式サンプル279件を `cargo test --locked --test atcoder` で検証します。
 
-[AOJの34問・36解答](examples/aoj/README.md) と [Library Checkerの9解答](examples/library_checker/README.md) は、`online-judge-tools/verification-helper` で公開テストケースを取得して検証します。[導入と実行方法](docs/development/verification.md) を参照してください。
+[AOJの35問・39解答](examples/aoj/README.md) と [Library Checkerの10解答](examples/library_checker/README.md) は、`online-judge-tools/verification-helper` で公開テストケースを取得して検証します。[導入と実行方法](docs/development/verification.md) を参照してください。
+
+[ブロック式とラベル付きループ](docs/reference/blocks-labels.md)にも対応します。if式の分岐に文を並べ、ブロック式から外側へbreak/continueできます。
+
+処理系はCST → AST → HIR → LIR → C++の段階に分かれています。LIRでは基本ブロックとジャンプを使います。[変換パイプラインと各段階の確認方法](docs/development/pipeline.md)を参照してください。
 
 ## 試す
 

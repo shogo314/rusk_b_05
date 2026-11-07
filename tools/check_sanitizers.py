@@ -9,6 +9,26 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 CASES = [
+    ((ROOT/'examples/beta05/blocks_and_labels.rusk').read_text(),b'',b'a b\nZbc!\n1 2\n'),
+    ((ROOT/'examples/beta05/control_flow.rusk').read_text(),b'',b'b c\nab!\nab!? 2\n13\n'),
+    ('''let o:=Some([1]);let alias:=o;let held:=o?!;
+o=None;held[0]=7;wt alias.is_none(),held;
+let d:=Dict::<Str,Vec<Int>>();d.set("a",held);let saved:=d.get("a")?!;
+let detached=d;d.erase("a");saved[0]=8;wt saved,detached.get("a")?!.len();
+for i in 0..1000{d.set(Str(i),[i]);}d.clear();wt saved;
+''',b'',b'Yes 7\n8 1\n8\n'),
+    ('''let s:=Set::<(Int,Str)>();let key:=(1,"a");s.insert(key);key[1]="b";
+for k in s{k[0]=99;s.insert((1,"a"));}wt s.contains((1,"a"));
+let d:=Dict::<Int,Int>();for i in 0..50{d.set(i,i);}
+let it:=d.map((p:(Int,Int))=>p[1]);let other=it;
+wt it.fold(0,(a:Int,b:Int)=>a+b),other.fold(0,(a:Int,b:Int)=>a+b);
+d.clear();s.clear();
+''',b'',b'Yes\n1225 1225\n'),
+    ('''let text:="abc";let o:=Some(text[0]);let c:=if true{o?!}else{text[1]};
+o=None;c='Z';wt text;let independent=c;c:='Q';text.push_back('!');wt independent,text;
+in grid(2,2):Vec<Vec<Int>>,pairs(2):Vec<(Int,Str)>;wt grid,pairs;
+wt try_read::<Int>().is_none();
+''',b'1 2 3 4 5 x 6 y\n',b'Zbc\nZ Zbc!\n1 2 3 4 5 x 6 y\nYes\n'),
     ('''let text:="abc";let c:=text[1];let f:=()=>c;
 let independent=f;c:='Q';text:="new";let held:=f();held='Z';
 wt f(),independent(),text;
